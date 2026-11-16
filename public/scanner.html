@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>NCSS Gate Scanner • Science Day 2026</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- HTML5 QR Code Scanner -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    
+    @keyframes laserSweep {
+      0% { top: 6%; opacity: 0.3; }
+      50% { top: 92%; opacity: 1; }
+      100% { top: 6%; opacity: 0.3; }
+    }
+    .scanner-laser {
+      position: absolute;
+      left: 4%;
+      right: 4%;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, #ef4444, #dc2626, #ef4444, transparent);
+      box-shadow: 0 0 14px 3px rgba(239, 68, 68, 0.8);
+      animation: laserSweep 2s infinite ease-in-out;
+    }
+
+    #reader {
+      border: none !important;
+      width: 100% !important;
+    }
+    #reader video {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+      border-radius: 1rem;
+    }
+    #reader__dashboard, #reader__scan_region {
+      background: transparent !important;
+    }
+    #reader__dashboard { display: none !important; }
+
+    @keyframes slideUp {
+      0% { transform: translateY(100%); opacity: 0; }
+      100% { transform: translateY(0); opacity: 1; }
+    }
+    .animate-slideUp {
+      animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans select-none overflow-x-hidden pb-16">
+
+  <!-- ========================================================================= -->
+  <!-- PREFECT PASSCODE SCREEN (Passcode: 12345678) -->
+  <!-- ========================================================================= -->
+  <div id="prefect-lock-screen" class="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 max-w-xs w-full text-center shadow-2xl space-y-4 animate-slideUp">
+      <img src="/logo.png" alt="NCSS Logo" class="w-16 h-16 object-contain mx-auto">
+      <div>
+        <h2 class="text-base font-black text-white">NCSS Gate Scanner</h2>
+        <p class="text-xs text-slate-400 mt-0.5">Enter Prefect Passcode</p>
+      </div>
+
+      <form id="prefect-login-form" onsubmit="handlePrefectLogin(event)" class="space-y-3">
+        <div>
+          <input type="password" id="prefect-passcode-input" required placeholder="Passcode (12345678)" inputmode="numeric"
+            class="w-full px-4 py-3 bg-slate-950 text-white rounded-xl border border-slate-700 text-sm focus:outline-none focus:border-red-500 text-center tracking-widest font-mono">
+          <p id="prefect-error-msg" class="text-rose-400 text-[11px] mt-1.5 hidden">Incorrect Passcode! (12345678)</p>
+        </div>
+        <button type="submit" class="w-full py-3 bg-gradient-to-r from-red-600 to-rose-600 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 active:scale-95 transition-all">
+          Unlock Scanner
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- SCANNER APP WRAPPER (Shown after entering 12345678) -->
+  <!-- ========================================================================= -->
+  <div id="scanner-app-wrapper" class="hidden flex-1 flex flex-col">
+
+    <!-- Mobile Top Bar with NCSS Logo -->
+    <header class="bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-3.5 py-2.5 flex items-center justify-between sticky top-0 z-30">
+      <div class="flex items-center space-x-2.5">
+        <img src="/logo.png" alt="NCSS Logo" class="w-8 h-8 object-contain">
+        <div>
+          <h1 class="text-xs font-black tracking-tight text-white flex items-center gap-1.5 leading-none">
+            NCSS SCIENCE DAY
+            <span class="text-[8px] uppercase px-1.5 py-0.5 rounded bg-red-950 text-red-400 border border-red-800 font-bold">GATE</span>
+          </h1>
+          <p class="text-[10px] text-slate-400 mt-0.5">Prefect Entry & Exit Scanner</p>
+        </div>
+      </div>
+
+      <!-- Active Indicator & Camera Flip & Lock -->
+      <div class="flex items-center gap-1.5">
+        <span id="scan-status-pill" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+          Ready
+        </span>
+        <button onclick="switchCameraToggle()" title="Switch Camera" class="p-2 bg-slate-800 text-slate-300 rounded-lg active:scale-90 transition-transform">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+        </button>
+        <button onclick="lockPrefectScanner()" title="Lock Scanner" class="p-2 bg-slate-800 text-slate-400 hover:text-white rounded-lg active:scale-90 transition-transform">
+          <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- VIEW 1: CAMERA SCANNER VIEW -->
+    <main id="view-scanner" class="flex-1 flex flex-col p-3 max-w-md mx-auto w-full gap-2.5">
+
+      <!-- Camera Box -->
+      <div class="relative w-full aspect-square max-h-[300px] bg-black rounded-2xl overflow-hidden border-2 border-slate-800 shadow-2xl flex items-center justify-center">
+        <div id="reader" class="w-full h-full"></div>
+
+        <!-- Target Overlay -->
+        <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div class="w-52 h-52 border-2 border-red-500/60 rounded-2xl relative">
+            <div class="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-red-500 rounded-tl"></div>
+            <div class="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-red-500 rounded-tr"></div>
+            <div class="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-red-500 rounded-bl"></div>
+            <div class="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-red-500 rounded-br"></div>
+            <div class="scanner-laser"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons: Manual Add + Manual Code Input -->
+      <div class="space-y-2">
+        <button onclick="openManualAddModal()" class="w-full py-2.5 bg-gradient-to-r from-red-700 to-rose-600 hover:from-red-600 hover:to-rose-500 text-white font-black text-xs rounded-xl shadow-lg shadow-red-700/20 flex items-center justify-center gap-1.5 active:scale-95 transition-all">
+          <i data-lucide="user-plus" class="w-4 h-4"></i>
+          <span>➕ ADD STUDENT MANUALLY (NO QR CARD)</span>
+        </button>
+
+        <form onsubmit="handleManualSubmit(event)" class="flex gap-2">
+          <input type="text" id="manual-code" placeholder="Or Type Pass Code (SCI-0015)" 
+            class="flex-1 px-3 py-2 bg-slate-900 text-white font-mono text-xs uppercase rounded-xl border border-slate-800 focus:outline-none focus:border-red-500">
+          <button type="submit" class="px-4 py-2 bg-slate-800 text-red-400 font-bold text-xs rounded-xl border border-slate-700 active:scale-95 transition-all">
+            Check
+          </button>
+        </form>
+      </div>
+
+      <!-- SCAN RESULT & STUDENT VERIFICATION CARD -->
+      <div id="status-card-container" class="flex-1 min-h-[140px]">
+        
+        <!-- Idle Placeholder -->
+        <div id="state-idle" class="h-full bg-slate-900/60 border border-slate-800 rounded-2xl p-3.5 flex flex-col items-center justify-center text-center">
+          <div class="w-10 h-10 rounded-xl bg-slate-800 text-red-400 flex items-center justify-center mb-1">
+            <i data-lucide="qr-code" class="w-5 h-5"></i>
+          </div>
+          <p class="text-xs font-bold text-white">Point camera at Student's QR Pass</p>
+          <p class="text-[10px] text-slate-400 mt-0.5">Scans instantly • Verify student name & mark exit</p>
+        </div>
+
+        <!-- Dynamic Verified Student Card (NO Auto-Exit! Shows button to mark left) -->
+        <div id="state-verified-card" class="hidden bg-slate-900 border-2 border-slate-700 rounded-2xl p-4 animate-slideUp space-y-3 shadow-2xl">
+          <div class="flex items-start justify-between">
+            <div>
+              <div id="card-status-badge" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-emerald-950 text-emerald-400 border border-emerald-800">
+                🟢 CURRENTLY IN HALL
+              </div>
+              <h3 id="card-student-name" class="text-lg font-black text-white leading-tight mt-1">Kasun Fernando</h3>
+              <p id="card-student-class" class="text-xs text-slate-300 font-bold">Grade 13 - B2</p>
+            </div>
+            <span id="card-pass-code" class="font-mono font-bold text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-cyan-300 border border-slate-700">SCI-0007</span>
+          </div>
+
+          <!-- Times Info Box -->
+          <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800/80 text-[11px] font-mono space-y-1">
+            <div class="flex justify-between text-slate-400">
+              <span>Arrival Time:</span>
+              <strong id="card-arrival-time" class="text-emerald-400">12:23 PM</strong>
+            </div>
+            <div id="card-exit-row" class="flex justify-between text-slate-400 hidden">
+              <span>Exit Time:</span>
+              <strong id="card-exit-time" class="text-amber-400">-</strong>
+            </div>
+          </div>
+
+          <!-- MANUAL ACTION BUTTON: Click to Mark Left or Re-enter! -->
+          <div id="card-actions-area">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Invalid QR Alert -->
+        <div id="state-invalid" class="hidden bg-rose-950/80 border-2 border-rose-600 rounded-2xl p-4 animate-slideUp">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center flex-shrink-0">
+              <i data-lucide="alert-octagon" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h3 class="text-xs font-black text-white">INVALID QR CODE!</h3>
+              <p id="invalid-msg" class="text-[11px] text-rose-300 mt-0.5">Not an official NCSS pass.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+
+    <!-- VIEW 2: REGISTERED STUDENTS LIST -->
+    <main id="view-students" class="hidden flex-1 flex flex-col p-3 max-w-md mx-auto w-full gap-3">
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+            <i data-lucide="users" class="w-4 h-4 text-red-400"></i>
+            Registered Students
+          </h2>
+          <button onclick="fetchRegisteredStudents()" class="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1 font-bold">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh
+          </button>
+        </div>
+
+        <div class="relative">
+          <input type="text" id="phone-student-search" oninput="filterRegisteredStudents()" placeholder="Search name, code, class (B1, M2)..." 
+            class="w-full px-3 py-2 bg-slate-950 text-white text-xs rounded-xl border border-slate-800 focus:outline-none focus:border-red-500">
+        </div>
+
+        <div id="phone-students-container" class="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+          <div class="text-center py-8 text-slate-500 text-xs">Loading students...</div>
+        </div>
+      </div>
+    </main>
+
+    <!-- BOTTOM NAVIGATION -->
+    <nav class="fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 h-14 flex items-center justify-around z-40 max-w-md mx-auto">
+      <button onclick="switchMobileTab('scanner')" id="nav-btn-scanner" class="flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-red-400 font-bold transition-colors">
+        <i data-lucide="scan" class="w-5 h-5"></i>
+        <span class="text-[10px]">Scanner</span>
+      </button>
+      <button onclick="switchMobileTab('students')" id="nav-btn-students" class="flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-slate-400 hover:text-white font-medium transition-colors">
+        <i data-lucide="list-checks" class="w-5 h-5"></i>
+        <span class="text-[10px]">Registered List</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: FAST 1-TAP STUDENT REGISTRATION -->
+  <!-- ========================================================================= -->
+  <div id="register-bottom-sheet" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex flex-col justify-end hidden">
+    <div class="bg-slate-900 border-t border-slate-700 rounded-t-3xl p-5 shadow-2xl max-w-md mx-auto w-full space-y-3.5 animate-slideUp">
+      
+      <!-- Header -->
+      <div class="flex items-center justify-between pb-1 border-b border-slate-800">
+        <div>
+          <span id="reg-title-tag" class="text-[9px] font-black uppercase tracking-wider text-red-400">1st Time Scan</span>
+          <h2 class="text-base font-black text-white flex items-center gap-2">
+            Admit Student
+            <span id="reg-code-pill" class="text-xs font-mono font-bold px-2 py-0.5 rounded bg-red-950 text-red-300 border border-red-800">SCI-0001</span>
+          </h2>
+        </div>
+        <button onclick="closeRegisterSheet()" class="p-1.5 text-slate-400 hover:text-white rounded-lg bg-slate-800">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <form id="fast-reg-form" onsubmit="submitFastRegistration(event)" class="space-y-3">
+        <input type="hidden" id="reg-code">
+        <input type="hidden" id="selected-grade" value="Grade 12">
+        <input type="hidden" id="selected-class" value="">
+
+        <!-- 1. Student Name -->
+        <div>
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+            Student Name <span class="text-rose-400">*</span>
+          </label>
+          <input type="text" id="reg-name" required placeholder="Type student name..." 
+            class="w-full px-3.5 py-2.5 bg-slate-950 text-white font-semibold text-sm rounded-xl border border-slate-700 focus:outline-none focus:border-red-500">
+        </div>
+
+        <!-- 2. Grade Selection -->
+        <div>
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+            Select Grade <span class="text-rose-400">*</span>
+          </label>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" onclick="selectGrade('Grade 12')" id="btn-grade-12" 
+              class="grade-btn py-2 px-3 rounded-xl border-2 border-red-500 bg-red-950/60 text-red-300 font-black text-xs flex items-center justify-center gap-1 shadow-md shadow-red-950">
+              <span>Grade 12</span>
+            </button>
+            <button type="button" onclick="selectGrade('Grade 13')" id="btn-grade-13" 
+              class="grade-btn py-2 px-3 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 font-bold text-xs flex items-center justify-center gap-1 active:scale-95 transition-all">
+              <span>Grade 13</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. Class Buttons -->
+        <div>
+          <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+            Select Class <span class="text-rose-400">*</span>
+          </label>
+          
+          <!-- Biology -->
+          <div class="mb-2">
+            <span class="text-[9px] font-bold uppercase text-emerald-400 block mb-1">Biology (B1 - B4):</span>
+            <div class="grid grid-cols-4 gap-1.5">
+              <button type="button" onclick="selectClass('B1')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">B1</button>
+              <button type="button" onclick="selectClass('B2')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">B2</button>
+              <button type="button" onclick="selectClass('B3')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">B3</button>
+              <button type="button" onclick="selectClass('B4')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">B4</button>
+            </div>
+          </div>
+
+          <!-- Maths -->
+          <div>
+            <span class="text-[9px] font-bold uppercase text-cyan-400 block mb-1">Mathematics (M1 - M7):</span>
+            <div class="grid grid-cols-7 gap-1">
+              <button type="button" onclick="selectClass('M1')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">M1</button>
+              <button type="button" onclick="selectClass('M2')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">M2</button>
+              <button type="button" onclick="selectClass('M3')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">M3</button>
+              <button type="button" onclick="selectClass('M4')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">M4</button>
+              <button type="button" onclick="selectClass('M5')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">M5</button>
+              <button type="button" onclick="selectClass('M6')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">M6</button>
+              <button type="button" onclick="selectClass('M7')" class="class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-200 font-black text-xs">M7</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="pt-1.5">
+          <button type="submit" class="w-full py-3 bg-gradient-to-r from-red-600 to-rose-600 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-red-600/30 flex items-center justify-center gap-1.5 active:scale-95 transition-all">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>SUBMIT & ADMIT STUDENT</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Client Script -->
+  <script>
+    let html5Qr = null;
+    let availableCameras = [];
+    let currentCamIdx = 0;
+    let isProcessing = false;
+    let lastCode = '';
+    let lastTime = 0;
+    let audioCtx = null;
+    let registeredStudentsCache = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.lucide) lucide.createIcons();
+
+      const savedPin = localStorage.getItem('ncss_prefect_pin');
+      if (savedPin === '12345678') {
+        unlockPrefectScanner();
+      }
+    });
+
+    async function handlePrefectLogin(e) {
+      e.preventDefault();
+      const pin = document.getElementById('prefect-passcode-input').value.trim();
+      const err = document.getElementById('prefect-error-msg');
+
+      try {
+        const res = await fetch('/api/auth/prefect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pin })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          localStorage.setItem('ncss_prefect_pin', pin);
+          err.classList.add('hidden');
+          unlockPrefectScanner();
+        } else {
+          err.classList.remove('hidden');
+        }
+      } catch (e) {
+        if (pin === '12345678') {
+          localStorage.setItem('ncss_prefect_pin', pin);
+          unlockPrefectScanner();
+        } else {
+          err.classList.remove('hidden');
+        }
+      }
+    }
+
+    function unlockPrefectScanner() {
+      document.getElementById('prefect-lock-screen').classList.add('hidden');
+      document.getElementById('scanner-app-wrapper').classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+      startCamera();
+    }
+
+    function lockPrefectScanner() {
+      localStorage.removeItem('ncss_prefect_pin');
+      document.getElementById('prefect-lock-screen').classList.remove('hidden');
+      document.getElementById('scanner-app-wrapper').classList.add('hidden');
+      document.getElementById('prefect-passcode-input').value = '';
+      if (html5Qr) html5Qr.stop().catch(() => {});
+    }
+
+    function switchMobileTab(tab) {
+      const vScanner = document.getElementById('view-scanner');
+      const vStudents = document.getElementById('view-students');
+      const btnScanner = document.getElementById('nav-btn-scanner');
+      const btnStudents = document.getElementById('nav-btn-students');
+
+      if (tab === 'scanner') {
+        vScanner.classList.remove('hidden');
+        vStudents.classList.add('hidden');
+        btnScanner.className = 'flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-red-400 font-bold transition-colors';
+        btnStudents.className = 'flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-slate-400 hover:text-white font-medium transition-colors';
+      } else {
+        vScanner.classList.add('hidden');
+        vStudents.classList.remove('hidden');
+        btnStudents.className = 'flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-red-400 font-bold transition-colors';
+        btnScanner.className = 'flex-1 h-full flex flex-col items-center justify-center gap-0.5 text-slate-400 hover:text-white font-medium transition-colors';
+        fetchRegisteredStudents();
+      }
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function playTone(type) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        if (type === 'beep') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.frequency.setValueAtTime(987.77, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.12);
+
+        } else if (type === 'enter') {
+          [523.25, 659.25, 783.99].forEach((freq, idx) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime + (idx * 0.05));
+            gain.gain.setValueAtTime(0.25, audioCtx.currentTime + (idx * 0.05));
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + (idx * 0.05) + 0.25);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(audioCtx.currentTime + (idx * 0.05));
+            osc.stop(audioCtx.currentTime + (idx * 0.05) + 0.25);
+          });
+
+        } else if (type === 'exit') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(261, audioCtx.currentTime + 0.25);
+          gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.25);
+
+        } else if (type === 'error') {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.35);
+        }
+      } catch (e) {
+        console.warn('Audio error:', e);
+      }
+    }
+
+    async function startCamera() {
+      try {
+        if (html5Qr) {
+          await html5Qr.stop().catch(() => {});
+          html5Qr.clear();
+        }
+        html5Qr = new Html5Qrcode('reader');
+        availableCameras = await Html5Qrcode.getCameras();
+
+        if (!availableCameras || availableCameras.length === 0) {
+          document.getElementById('scan-status-pill').textContent = 'No Camera';
+          return;
+        }
+
+        let selectedIdx = 0;
+        availableCameras.forEach((cam, idx) => {
+          if (cam.label.toLowerCase().includes('back') || cam.label.toLowerCase().includes('environment')) {
+            selectedIdx = idx;
+          }
+        });
+        currentCamIdx = selectedIdx;
+        await runCamera(availableCameras[currentCamIdx].id);
+
+      } catch (err) {
+        console.error('Camera error:', err);
+        document.getElementById('scan-status-pill').textContent = 'Blocked';
+      }
+    }
+
+    async function runCamera(cameraId) {
+      await html5Qr.start(
+        cameraId,
+        { fps: 15, qrbox: { width: 220, height: 220 } },
+        (decodedText) => onCodeScanned(decodedText),
+        () => {}
+      );
+      document.getElementById('scan-status-pill').innerHTML = `
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Ready
+      `;
+    }
+
+    async function switchCameraToggle() {
+      if (availableCameras.length <= 1) return;
+      currentCamIdx = (currentCamIdx + 1) % availableCameras.length;
+      await html5Qr.stop().catch(() => {});
+      await runCamera(availableCameras[currentCamIdx].id);
+    }
+
+    async function onCodeScanned(text) {
+      const code = (text || '').trim().toUpperCase();
+      const now = Date.now();
+      if (isProcessing || (code === lastCode && (now - lastTime < 3000))) return;
+
+      isProcessing = true;
+      lastCode = code;
+      lastTime = now;
+
+      playTone('beep');
+      await handleCode(code);
+      isProcessing = false;
+    }
+
+    function handleManualSubmit(e) {
+      e.preventDefault();
+      const input = document.getElementById('manual-code');
+      const code = input.value.trim().toUpperCase();
+      if (!code) return;
+      handleCode(code);
+      input.value = '';
+    }
+
+    async function openManualAddModal() {
+      try {
+        const res = await fetch('/api/next-pass');
+        const data = await res.json();
+        const code = data.code || 'SCI-0001';
+
+        document.getElementById('reg-title-tag').textContent = 'Manual Entry';
+        openRegisterSheet(code);
+      } catch (err) {
+        openRegisterSheet('SCI-0001');
+      }
+    }
+
+    async function handleCode(code) {
+      try {
+        const res = await fetch('/api/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+
+        const data = await res.json();
+
+        if (data.status === 'INVALID_QR' || (!data.success && data.error)) {
+          playTone('error');
+          showInvalidCard(data.message || 'Invalid QR code.');
+          return;
+        }
+
+        // 1. Unregistered -> Open registration form
+        if (data.status === 'UNREGISTERED') {
+          document.getElementById('reg-title-tag').textContent = '1st Time Scan';
+          openRegisterSheet(code);
+          return;
+        }
+
+        // 2. Registered Student Verified -> DISPLAY VERIFIED CARD WITH BUTTON TO MARK LEFT!
+        if (data.status === 'REGISTERED') {
+          playTone('enter');
+          showVerifiedStudentCard(data.pass, data.arrivalTime, data.exitTime);
+          return;
+        }
+
+      } catch (err) {
+        console.error('Scan error:', err);
+      }
+    }
+
+    function hideAllCards() {
+      document.getElementById('state-idle').classList.add('hidden');
+      document.getElementById('state-verified-card').classList.add('hidden');
+      document.getElementById('state-invalid').classList.add('hidden');
+    }
+
+    // SHOW VERIFIED STUDENT CARD WITH MANUAL BUTTON
+    function showVerifiedStudentCard(pass, arrTime, extTime) {
+      hideAllCards();
+      const card = document.getElementById('state-verified-card');
+      const badge = document.getElementById('card-status-badge');
+      const actions = document.getElementById('card-actions-area');
+      const exitRow = document.getElementById('card-exit-row');
+
+      document.getElementById('card-student-name').textContent = pass.student_name;
+      document.getElementById('card-student-class').textContent = pass.school_or_grade || `${pass.grade} - ${pass.classroom}`;
+      document.getElementById('card-pass-code').textContent = pass.code;
+      document.getElementById('card-arrival-time').textContent = arrTime || '-';
+
+      const isInside = pass.status === 'INSIDE';
+
+      if (isInside) {
+        badge.className = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-black bg-emerald-950 text-emerald-400 border border-emerald-800';
+        badge.innerHTML = '🟢 CURRENTLY IN HALL';
+        exitRow.classList.add('hidden');
+
+        // Show big red "MARK AS LEFT HALL" button
+        actions.innerHTML = `
+          <button onclick="submitMarkStatus('${pass.code}', 'EXIT')" class="w-full py-3 bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-rose-600/30 flex items-center justify-center gap-2 active:scale-95 transition-all">
+            <i data-lucide="log-out" class="w-4 h-4"></i>
+            <span>🚪 MARK AS LEFT HALL (EXIT NOW)</span>
+          </button>
+        `;
+      } else {
+        badge.className = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-black bg-amber-950 text-amber-400 border border-amber-800';
+        badge.innerHTML = '🔴 CURRENTLY OUTSIDE (LEFT)';
+        exitRow.classList.remove('hidden');
+        document.getElementById('card-exit-time').textContent = extTime || 'Earlier';
+
+        // Show green "RE-ADMIT TO HALL" button
+        actions.innerHTML = `
+          <button onclick="submitMarkStatus('${pass.code}', 'ENTRY')" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 active:scale-95 transition-all">
+            <i data-lucide="log-in" class="w-4 h-4"></i>
+            <span>🟢 MARK RE-ENTRY (ADMIT BACK IN)</span>
+          </button>
+        `;
+      }
+
+      card.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // Submit Explicit Status Change (EXIT or RE-ENTRY)
+    async function submitMarkStatus(code, action) {
+      try {
+        const res = await fetch('/api/mark-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, action })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          if (action === 'EXIT') {
+            playTone('exit');
+          } else {
+            playTone('enter');
+          }
+
+          showVerifiedStudentCard(data.pass, 
+            data.pass.arrival_time ? new Date(data.pass.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-', 
+            data.time
+          );
+        } else {
+          alert('Error: ' + data.error);
+        }
+      } catch (err) {
+        alert('Failed to update status: ' + err.message);
+      }
+    }
+
+    function showInvalidCard(msg) {
+      hideAllCards();
+      const card = document.getElementById('state-invalid');
+      document.getElementById('invalid-msg').textContent = msg;
+      card.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function openRegisterSheet(code) {
+      document.getElementById('reg-code').value = code;
+      document.getElementById('reg-code-pill').textContent = code;
+      document.getElementById('reg-name').value = '';
+      selectGrade('Grade 12');
+      clearClassSelection();
+      document.getElementById('register-bottom-sheet').classList.remove('hidden');
+      setTimeout(() => document.getElementById('reg-name').focus(), 150);
+    }
+
+    function closeRegisterSheet() {
+      document.getElementById('register-bottom-sheet').classList.add('hidden');
+    }
+
+    function selectGrade(grade) {
+      document.getElementById('selected-grade').value = grade;
+      const b12 = document.getElementById('btn-grade-12');
+      const b13 = document.getElementById('btn-grade-13');
+
+      if (grade === 'Grade 12') {
+        b12.className = 'grade-btn py-2 px-3 rounded-xl border-2 border-red-500 bg-red-950/60 text-red-300 font-black text-xs flex items-center justify-center gap-1 shadow-md shadow-red-950';
+        b13.className = 'grade-btn py-2 px-3 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 font-bold text-xs flex items-center justify-center gap-1';
+      } else {
+        b13.className = 'grade-btn py-2 px-3 rounded-xl border-2 border-red-500 bg-red-950/60 text-red-300 font-black text-xs flex items-center justify-center gap-1 shadow-md shadow-red-950';
+        b12.className = 'grade-btn py-2 px-3 rounded-xl border border-slate-700 bg-slate-950 text-slate-400 font-bold text-xs flex items-center justify-center gap-1';
+      }
+    }
+
+    function clearClassSelection() {
+      document.getElementById('selected-class').value = '';
+      document.querySelectorAll('.class-btn').forEach(b => {
+        b.className = 'class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-300 font-black text-xs active:scale-95 transition-all';
+      });
+    }
+
+    function selectClass(className) {
+      document.getElementById('selected-class').value = className;
+      document.querySelectorAll('.class-btn').forEach(b => {
+        if (b.textContent.trim() === className) {
+          b.className = 'class-btn py-2 rounded-lg border-2 border-emerald-400 bg-emerald-950 text-emerald-300 font-black text-xs shadow-md shadow-emerald-950 scale-105 transition-all';
+        } else {
+          b.className = 'class-btn py-2 rounded-lg border border-slate-700 bg-slate-950 text-slate-400 font-black text-xs active:scale-95 transition-all';
+        }
+      });
+    }
+
+    async function submitFastRegistration(e) {
+      e.preventDefault();
+      const code = document.getElementById('reg-code').value;
+      const student_name = document.getElementById('reg-name').value.trim();
+      const grade = document.getElementById('selected-grade').value || 'Grade 12';
+      const classroom = document.getElementById('selected-class').value;
+
+      if (!classroom) {
+        alert('Please tap a Class (B1-B4 or M1-M7)!');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, student_name, grade, classroom, scanner_device: 'Mobile Gate' })
+        });
+
+        const data = await res.json();
+        if (!data.success) {
+          alert('Registration error: ' + data.error);
+          return;
+        }
+
+        closeRegisterSheet();
+        playTone('enter');
+        showVerifiedStudentCard(data.pass, data.time, null);
+
+      } catch (err) {
+        alert('Registration failed: ' + err.message);
+      }
+    }
+
+    async function fetchRegisteredStudents() {
+      const container = document.getElementById('phone-students-container');
+      try {
+        const res = await fetch('/api/registered-students');
+        const data = await res.json();
+        if (!data.success) return;
+
+        registeredStudentsCache = data.students || [];
+        renderRegisteredStudentsList(registeredStudentsCache);
+      } catch (e) {
+        container.innerHTML = '<div class="text-center py-6 text-rose-400 text-xs">Failed to load students.</div>';
+      }
+    }
+
+    function filterRegisteredStudents() {
+      const query = (document.getElementById('phone-student-search')?.value || '').toLowerCase().trim();
+      if (!query) {
+        renderRegisteredStudentsList(registeredStudentsCache);
+        return;
+      }
+      const filtered = registeredStudentsCache.filter(s => 
+        (s.student_name && s.student_name.toLowerCase().includes(query)) ||
+        (s.code && s.code.toLowerCase().includes(query)) ||
+        (s.classroom && s.classroom.toLowerCase().includes(query))
+      );
+      renderRegisteredStudentsList(filtered);
+    }
+
+    function renderRegisteredStudentsList(students) {
+      const container = document.getElementById('phone-students-container');
+      if (!container) return;
+
+      if (!students || students.length === 0) {
+        container.innerHTML = '<div class="text-center py-8 text-slate-500 text-xs">No registered students found.</div>';
+        return;
+      }
+
+      container.innerHTML = students.map(s => {
+        const isInside = s.status === 'INSIDE';
+        const badge = isInside 
+          ? '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">In Hall</span>'
+          : '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-950 text-amber-400 border border-amber-800">Left</span>';
+
+        const time = isInside 
+          ? (s.arrival_time ? new Date(s.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')
+          : (s.exit_time ? new Date(s.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+
+        return `
+          <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="font-bold text-white">${escapeHtml(s.student_name)}</span>
+                ${badge}
+              </div>
+              <p class="text-[10px] text-slate-400 font-mono mt-0.5">${s.code} • ${s.grade || ''} - <strong class="text-emerald-400">${s.classroom || ''}</strong></p>
+            </div>
+            <span class="text-[10px] font-mono text-slate-400">${time}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

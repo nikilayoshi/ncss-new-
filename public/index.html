@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>NCSS Science Day 2026 • Admin Portal</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-red-500 selection:text-slate-900">
+
+  <!-- ========================================================================= -->
+  <!-- LOGIN LOCK SCREEN (Password Protected: Nikila2008326@) -->
+  <!-- ========================================================================= -->
+  <div id="auth-lock-screen" class="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl space-y-4 animate-scaleUp">
+      <img src="/logo.png" alt="NCSS Logo" class="w-16 h-16 object-contain mx-auto">
+      <div>
+        <h2 class="text-lg font-black text-white">NCSS Science Day 2026</h2>
+        <p class="text-xs text-slate-400 mt-0.5">Admin Dashboard Access</p>
+      </div>
+
+      <form id="admin-login-form" onsubmit="handleAdminLogin(event)" class="space-y-3">
+        <div>
+          <input type="password" id="admin-password-input" required placeholder="Enter Admin Password..." 
+            class="w-full px-4 py-3 bg-slate-950 text-white rounded-xl border border-slate-700 text-sm focus:outline-none focus:border-red-500 text-center tracking-wider font-mono">
+          <p id="auth-error-msg" class="text-rose-400 text-[11px] mt-1 hidden">Incorrect password! Try again.</p>
+        </div>
+        <button type="submit" class="w-full py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 active:scale-95 transition-all">
+          Unlock Dashboard
+        </button>
+      </form>
+
+      <div class="pt-2 border-t border-slate-800/80">
+        <a href="/scanner" class="text-xs text-red-400 hover:text-red-300 font-bold flex items-center justify-center gap-1">
+          <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+          <span>Open Mobile Gate Scanner</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MAIN ADMIN PORTAL (Visible after unlocking) -->
+  <!-- ========================================================================= -->
+  <div id="main-admin-portal" class="hidden flex-1 flex flex-col">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-slate-900/95 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40">
+      <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div class="h-14 flex items-center justify-between">
+          <div class="flex items-center space-x-2.5">
+            <img src="/logo.png" alt="NCSS Logo" class="w-8 h-8 object-contain">
+            <div>
+              <h1 class="text-xs sm:text-sm font-black tracking-tight text-white flex items-center gap-1.5 leading-tight">
+                NCSS SCIENCE DAY 2026
+                <span class="text-[8px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-red-950 text-red-400 border border-red-800 hidden xs:inline">Admin</span>
+              </h1>
+              <p class="text-[10px] text-slate-400 hidden sm:block">Hall Entry & Attendance Control</p>
+            </div>
+          </div>
+
+          <!-- Quick Actions & Logout -->
+          <div class="flex items-center gap-2">
+            <a href="/scanner" target="_blank" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-600/20 text-red-400 border border-red-500/30 hover:bg-red-600 hover:text-white flex items-center gap-1 transition-all">
+              <i data-lucide="scan" class="w-3.5 h-3.5"></i>
+              <span class="hidden sm:inline">Gate Scanner</span>
+            </a>
+            <button onclick="logoutAdmin()" title="Lock Dashboard" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors">
+              <i data-lucide="log-out" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Scrollable Navigation Tabs -->
+        <div class="flex items-center space-x-1.5 overflow-x-auto no-scrollbar pb-2.5 pt-0.5">
+          <button onclick="switchTab('dashboard')" id="tab-btn-dashboard" class="tab-btn active px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 flex-shrink-0 transition-all">
+            <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i>
+            <span>Dashboard</span>
+          </button>
+          <button onclick="switchTab('students')" id="tab-btn-students" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 flex-shrink-0 transition-all">
+            <i data-lucide="users" class="w-3.5 h-3.5"></i>
+            <span>Students Log</span>
+          </button>
+          <button onclick="switchTab('qrprint')" id="tab-btn-qrprint" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 flex-shrink-0 transition-all">
+            <i data-lucide="qr-code" class="w-3.5 h-3.5"></i>
+            <span>Print QRs (20 / Sheet)</span>
+          </button>
+          <button onclick="switchTab('phoneconnect')" id="tab-btn-phoneconnect" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 flex-shrink-0 transition-all">
+            <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+            <span>Mallila Scanner Link</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 lg:p-8 space-y-4">
+
+      <!-- ===================================================================== -->
+      <!-- TAB 1: DASHBOARD -->
+      <!-- ===================================================================== -->
+      <section id="tab-dashboard" class="tab-content block space-y-4">
+        
+        <!-- 4 Stat Metric Cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <!-- In Hall -->
+          <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg relative overflow-hidden">
+            <div class="flex items-center justify-between text-slate-400 text-[10px] font-bold mb-1">
+              <span>IN HALL NOW</span>
+              <i data-lucide="log-in" class="w-3.5 h-3.5 text-emerald-400"></i>
+            </div>
+            <p id="stat-inside" class="text-2xl sm:text-4xl font-black text-emerald-400">0</p>
+            <p class="text-[10px] text-slate-500 mt-0.5">Students inside hall</p>
+            <div class="absolute -bottom-2 -right-2 w-12 h-12 bg-emerald-500/10 rounded-full blur-xl"></div>
+          </div>
+
+          <!-- Left Hall -->
+          <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg relative overflow-hidden">
+            <div class="flex items-center justify-between text-slate-400 text-[10px] font-bold mb-1">
+              <span>LEFT HALL (EXITED)</span>
+              <i data-lucide="log-out" class="w-3.5 h-3.5 text-amber-400"></i>
+            </div>
+            <p id="stat-left" class="text-2xl sm:text-4xl font-black text-amber-400">0</p>
+            <p id="stat-exits" class="text-[10px] text-slate-500 mt-0.5">Exits recorded</p>
+            <div class="absolute -bottom-2 -right-2 w-12 h-12 bg-amber-500/10 rounded-full blur-xl"></div>
+          </div>
+
+          <!-- Registered -->
+          <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg relative overflow-hidden">
+            <div class="flex items-center justify-between text-slate-400 text-[10px] font-bold mb-1">
+              <span>TOTAL REGISTERED</span>
+              <i data-lucide="user-check" class="w-3.5 h-3.5 text-red-400"></i>
+            </div>
+            <p id="stat-registered" class="text-2xl sm:text-4xl font-black text-red-400">0</p>
+            <p id="stat-registered-pct" class="text-[10px] text-slate-500 mt-0.5">Passes assigned</p>
+            <div class="absolute -bottom-2 -right-2 w-12 h-12 bg-red-500/10 rounded-full blur-xl"></div>
+          </div>
+
+          <!-- Total Passes -->
+          <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg relative overflow-hidden">
+            <div class="flex items-center justify-between text-slate-400 text-[10px] font-bold mb-1">
+              <span>PASSES READY</span>
+              <i data-lucide="ticket" class="w-3.5 h-3.5 text-blue-400"></i>
+            </div>
+            <p id="stat-total" class="text-2xl sm:text-4xl font-black text-white">400</p>
+            <p id="stat-pending" class="text-[10px] text-slate-500 mt-0.5">400 passes</p>
+            <div class="absolute -bottom-2 -right-2 w-12 h-12 bg-blue-500/10 rounded-full blur-xl"></div>
+          </div>
+        </div>
+
+        <!-- Export Actions Bar -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xl">
+          <div>
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i data-lucide="file-text" class="w-4 h-4 text-red-400"></i>
+              Attendance Reports & Export
+            </h3>
+            <p class="text-[11px] text-slate-400 mt-0.5">Download full attendance list with Arrival & Exit times</p>
+          </div>
+
+          <div class="flex gap-2">
+            <!-- PDF Download -->
+            <a href="/api/download-attendance-pdf" download class="flex-1 sm:flex-none px-4 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-red-600/20 transition-all">
+              <i data-lucide="file-down" class="w-3.5 h-3.5"></i>
+              <span>Download PDF</span>
+            </a>
+
+            <!-- CSV Export -->
+            <a href="/api/export-csv" download class="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all">
+              <i data-lucide="table" class="w-3.5 h-3.5"></i>
+              <span>Export CSV</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Live Scan Logs Activity Stream -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+              <i data-lucide="activity" class="w-3.5 h-3.5 text-red-400"></i>
+              Live Gate Entry & Exit Stream
+            </h3>
+            <button onclick="refreshDashboard()" class="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1 font-bold">
+              <i data-lucide="refresh-cw" class="w-3 h-3"></i> Refresh
+            </button>
+          </div>
+
+          <div id="recent-logs-table" class="space-y-2">
+            <div class="text-center py-6 text-slate-500 text-xs">Waiting for scans...</div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- TAB 2: STUDENTS DIRECTORY & WIPE TEST DATA -->
+      <!-- ===================================================================== -->
+      <section id="tab-students" class="tab-content hidden space-y-4">
+        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
+          
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+            <div class="relative flex-1">
+              <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <i data-lucide="search" class="w-3.5 h-3.5"></i>
+              </span>
+              <input type="text" id="student-search-input" oninput="debounceStudentSearch()" placeholder="Search name, code, Grade 12, M3, B1..." 
+                class="w-full pl-8 pr-3 py-2 bg-slate-950 text-white text-xs rounded-xl border border-slate-800 focus:outline-none focus:border-red-500">
+            </div>
+
+            <div class="flex items-center gap-2">
+              <select id="student-filter" onchange="fetchStudents()" class="bg-slate-950 text-slate-300 text-xs rounded-xl px-3 py-2 border border-slate-800 focus:outline-none focus:border-red-500">
+                <option value="all">All Passes</option>
+                <option value="inside">🟢 In Hall</option>
+                <option value="left">🔴 Left Hall</option>
+                <option value="registered">Registered</option>
+                <option value="unregistered">Unassigned</option>
+              </select>
+
+              <!-- Wipe Test Data Button -->
+              <button onclick="wipeAllTestData()" class="px-3 py-2 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/80 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline">Reset All Test Data</span>
+                <span class="sm:hidden">Reset All</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto rounded-xl border border-slate-800">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-950/90 text-slate-400 uppercase tracking-wider text-[10px] font-bold border-b border-slate-800">
+                <tr>
+                  <th class="py-2.5 px-3">Pass Code</th>
+                  <th class="py-2.5 px-3">Student Name</th>
+                  <th class="py-2.5 px-3">Grade</th>
+                  <th class="py-2.5 px-3">Class</th>
+                  <th class="py-2.5 px-3">Status</th>
+                  <th class="py-2.5 px-3">Arrival (IN)</th>
+                  <th class="py-2.5 px-3">Exit (OUT)</th>
+                  <th class="py-2.5 px-3 text-right">Delete & Free QR</th>
+                </tr>
+              </thead>
+              <tbody id="students-table-body" class="divide-y divide-slate-800/60 font-medium"></tbody>
+            </table>
+          </div>
+
+          <div class="flex items-center justify-between pt-1 text-xs text-slate-400">
+            <span id="students-page-info">Showing passes</span>
+            <div class="flex gap-2">
+              <button id="prev-page-btn" onclick="changeStudentPage(-1)" class="px-2.5 py-1 bg-slate-800 rounded-lg text-white disabled:opacity-40 text-xs">Prev</button>
+              <button id="next-page-btn" onclick="changeStudentPage(1)" class="px-2.5 py-1 bg-slate-800 rounded-lg text-white disabled:opacity-40 text-xs">Next</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- TAB 3: PRINT COMPACT QR CODES (20 PER A4 PAGE) -->
+      <!-- ===================================================================== -->
+      <section id="tab-qrprint" class="tab-content hidden space-y-4">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+          
+          <div class="lg:col-span-6 bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+            <div>
+              <h2 class="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                <i data-lucide="printer" class="w-4 h-4 text-red-400"></i>
+                Print Pure QR Tokens (20 per A4 Sheet)
+              </h2>
+              <p class="text-xs text-slate-400 mt-1">
+                400 QR Codes = exactly <strong>20 A4 Sheets</strong> (4 columns &times; 5 rows) with NCSS Logo, cutting lines and Pass IDs.
+              </p>
+            </div>
+
+            <form onsubmit="handleDownloadQrPdf(event)" class="space-y-3">
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[10px] font-semibold text-slate-300 uppercase mb-1">From #</label>
+                  <input type="number" id="qr-from-input" value="1" min="1" max="5000"
+                    class="w-full px-3 py-2 bg-slate-950 text-white text-xs rounded-xl border border-slate-800 font-mono">
+                </div>
+                <div>
+                  <label class="block text-[10px] font-semibold text-slate-300 uppercase mb-1">To #</label>
+                  <input type="number" id="qr-to-input" value="400" min="1" max="5000"
+                    class="w-full px-3 py-2 bg-slate-950 text-white text-xs rounded-xl border border-slate-800 font-mono">
+                </div>
+              </div>
+
+              <button type="submit" class="w-full py-3 bg-gradient-to-r from-red-600 to-rose-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-600/25 flex items-center justify-center gap-1.5 transition-all">
+                <i data-lucide="file-down" class="w-4 h-4"></i>
+                <span>Download Printable QR PDF (20 / Page)</span>
+              </button>
+            </form>
+          </div>
+
+          <div class="lg:col-span-6 bg-slate-900/80 border border-slate-800 rounded-2xl p-5 shadow-xl text-center space-y-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Single Token Preview with NCSS Logo</h3>
+            <div class="p-4 bg-slate-950 rounded-xl border border-slate-800 inline-block">
+              <div class="w-36 bg-white text-slate-900 rounded-lg border-2 border-dashed border-slate-400 p-2 space-y-1">
+                <div class="flex items-center justify-center gap-1">
+                  <img src="/logo.png" class="w-3.5 h-3.5 object-contain">
+                  <span class="text-[7.5px] font-black uppercase tracking-wider text-red-700">NCSS SCIENCE DAY</span>
+                </div>
+                <div class="w-20 h-20 bg-slate-100 mx-auto rounded border border-slate-300 p-1 flex items-center justify-center relative">
+                  <img id="sample-qr-token" src="" alt="QR" class="w-full h-full object-contain">
+                  <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <img src="/logo.png" class="w-5 h-5 object-contain bg-white rounded-full p-0.5 shadow-sm">
+                  </div>
+                </div>
+                <div class="bg-slate-200 rounded py-0.5 px-2 font-mono font-black text-slate-900 text-[11px]">
+                  SCI-0001
+                </div>
+                <span class="text-[7px] text-slate-400 block italic">Student Pass</span>
+              </div>
+            </div>
+            <p class="text-[11px] text-slate-400">Cut along the dotted line. Small, convenient, fits on ID cards or student hands!</p>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- TAB 4: MALLILA SCANNER LINK & PAIRING -->
+      <!-- ===================================================================== -->
+      <section id="tab-phoneconnect" class="tab-content hidden space-y-4">
+        <div class="max-w-lg mx-auto bg-slate-900/80 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl text-center space-y-4">
+          <div>
+            <div class="w-10 h-10 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center mx-auto mb-2 border border-red-500/30">
+              <i data-lucide="smartphone" class="w-5 h-5"></i>
+            </div>
+            <h2 class="text-base sm:text-lg font-black text-white">Prefect / Mallila Phone Scanner</h2>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Give this link to the prefects scanning at the gates.
+            </p>
+          </div>
+
+          <div class="p-3.5 bg-red-950/40 border border-red-800/60 rounded-xl text-center space-y-1">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-red-300">Prefect Passcode:</span>
+            <p class="text-2xl font-black font-mono text-white tracking-widest">12345678</p>
+            <p class="text-[10px] text-slate-400">Prefects will be asked to enter this 8-digit passcode once to unlock scanner.</p>
+          </div>
+
+          <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-3">
+            <p class="text-xs font-bold uppercase tracking-wider text-red-400">Scan QR with Prefect's Phone Camera:</p>
+            
+            <div class="w-44 h-44 bg-white p-2 rounded-2xl mx-auto shadow-xl flex items-center justify-center">
+              <img id="phone-scanner-qr" src="" alt="Scanner QR" class="w-full h-full object-contain">
+            </div>
+
+            <div class="space-y-1">
+              <p class="text-[11px] text-slate-400">Direct Link:</p>
+              <p id="phone-scanner-url" class="font-mono text-xs font-bold text-red-400 select-all bg-slate-900 py-1.5 px-3 rounded-lg border border-slate-800 inline-block"></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

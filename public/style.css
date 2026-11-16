@@ -1,0 +1,100 @@
+/* Custom Styles for Science Day Pass System */
+
+@keyframes laserSweep {
+  0% {
+    top: 5%;
+    opacity: 0.3;
+  }
+  50% {
+    top: 95%;
+    opacity: 1;
+  }
+  100% {
+    top: 5%;
+    opacity: 0.3;
+  }
+}
+
+.scanner-laser {
+  position: absolute;
+  left: 2%;
+  right: 2%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #22d3ee, #06b6d4, #22d3ee, transparent);
+  box-shadow: 0 0 12px 2px rgba(6, 182, 212, 0.7);
+  animation: laserSweep 2.2s infinite ease-in-out;
+}
+
+/* Nav Tab Buttons */
+.tab-btn {
+  color: #94a3b8;
+  border: 1px solid transparent;
+}
+
+.tab-btn:hover {
+  color: #f1f5f9;
+  background: rgba(30, 41, 59, 0.7);
+}
+
+.tab-btn.active {
+  color: #ffffff;
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.4);
+  box-shadow: 0 0 15px -3px rgba(6, 182, 212, 0.2);
+}
+
+/* HTML5 QR Code Styling Overrides */
+#reader {
+  border: none !important;
+  width: 100% !important;
+}
+
+#reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 0.75rem;
+}
+
+#reader__scan_region {
+  background: transparent !important;
+}
+
+#reader__dashboard {
+  display: none !important; /* Hide default messy html5-qrcode controls */
+}
+
+/* Modal Animations */
+@keyframes scaleUp {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scaleUp {
+  animation: scaleUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #020617;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
