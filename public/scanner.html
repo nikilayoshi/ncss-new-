@@ -169,7 +169,7 @@
             <i data-lucide="qr-code" class="w-5 h-5"></i>
           </div>
           <p class="text-xs font-bold text-white">Point camera at Student's QR Pass</p>
-          <p class="text-[10px] text-slate-400 mt-0.5">Scans instantly • Speak English greeting • Mark exit</p>
+          <p class="text-[10px] text-slate-400 mt-0.5">Scans instantly • Instant Registration • Exit Tracking</p>
         </div>
 
         <!-- Dynamic Verified Student Card (NO Auto-Exit! Shows button to mark left) -->
@@ -350,36 +350,6 @@
     </div>
   </div>
 
-  <!-- ========================================================================= -->
-  <!-- MODAL: CELEBRATION & ENGLISH VOICE ANNOUNCEMENT POPUP -->
-  <!-- ========================================================================= -->
-  <div id="admission-celebration-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 hidden">
-    <div class="bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-emerald-500 rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl space-y-4 animate-popIn">
-      <div class="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500 text-emerald-400 flex items-center justify-center mx-auto text-3xl animate-bounce">
-        🎉
-      </div>
-      <div>
-        <span class="text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950 px-2.5 py-0.5 rounded-full border border-emerald-800">
-          ADMITTED TO HALL
-        </span>
-        <h2 id="celeb-student-name" class="text-2xl font-black text-white mt-2 leading-tight">Nikila</h2>
-        <p id="celeb-student-class" class="text-xs font-bold text-slate-300 mt-1">Grade 12 - B2 • SCI-0001</p>
-      </div>
-
-      <div class="p-3 bg-emerald-950/50 border border-emerald-800/80 rounded-xl text-emerald-200 text-xs font-medium space-y-1">
-        <p class="font-bold text-white flex items-center justify-center gap-1">
-          <i data-lucide="volume-2" class="w-3.5 h-3.5 text-emerald-400"></i>
-          <span id="celeb-speech-text">"Nikila, you can now enter Malalasekara Hall."</span>
-        </p>
-      </div>
-
-      <button onclick="closeAdmissionModal()" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-emerald-600/30 active:scale-95 transition-all flex items-center justify-center gap-2">
-        <i data-lucide="check-circle" class="w-4 h-4"></i>
-        <span>PROCEED (READY FOR NEXT SCAN)</span>
-      </button>
-    </div>
-  </div>
-
   <!-- Client Script -->
   <script>
     let html5Qr = null;
@@ -390,7 +360,6 @@
     let lastTime = 0;
     let audioCtx = null;
     let registeredStudentsCache = [];
-    let celebrationTimer = null;
 
     document.addEventListener('DOMContentLoaded', () => {
       if (window.lucide) lucide.createIcons();
@@ -399,39 +368,7 @@
       if (savedPin === '12345678') {
         unlockPrefectScanner();
       }
-
-      // Pre-warm Speech Synthesis voices
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.getVoices();
-        window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
-      }
     });
-
-    // -------------------------------------------------------------------------
-    // TEXT-TO-SPEECH ANNOUNCEMENT (English Voice)
-    // -------------------------------------------------------------------------
-    function speakAnnouncement(text) {
-      try {
-        if (!('speechSynthesis' in window)) return;
-        window.speechSynthesis.cancel(); // Stop any pending speech
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'en-US';
-        utterance.rate = 0.95;
-        utterance.pitch = 1.0;
-
-        const voices = window.speechSynthesis.getVoices();
-        // Look for clean English voices
-        const englishVoice = voices.find(v => 
-          v.lang.startsWith('en') && 
-          (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.default)
-        );
-        if (englishVoice) utterance.voice = englishVoice;
-
-        window.speechSynthesis.speak(utterance);
-      } catch (err) {
-        console.warn('Speech error:', err);
-      }
-    }
 
     async function handlePrefectLogin(e) {
       e.preventDefault();
@@ -754,10 +691,8 @@
         if (data.success) {
           if (action === 'EXIT') {
             playTone('exit');
-            if (data.spokenAnnouncement) speakAnnouncement(data.spokenAnnouncement);
           } else {
             playTone('enter');
-            if (data.spokenAnnouncement) speakAnnouncement(data.spokenAnnouncement);
           }
 
           showVerifiedStudentCard(data.pass, 
@@ -826,9 +761,16 @@
       });
     }
 
-    // SUBMIT FAST REGISTRATION + PLAY ENGLISH VOICE + CELEBRATION MODAL
+    // SUBMIT FAST REGISTRATION (INSTANT - NO MODAL, NO VOICE DELAY)
     async function submitFastRegistration(e) {
       e.preventDefault();
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      const originalHtml = submitBtn ? submitBtn.innerHTML : '';
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span>ADMITTING STUDENT...</span>';
+      }
+
       const code = document.getElementById('reg-code').value;
       const student_name = document.getElementById('reg-name').value.trim();
       const grade = document.getElementById('selected-grade').value || 'Grade 12';
@@ -836,6 +778,10 @@
 
       if (!classroom) {
         alert('Please select a Class (B1-B4 or M1-M7)!');
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = originalHtml;
+        }
         return;
       }
 
@@ -848,47 +794,42 @@
 
         const data = await res.json();
         if (!data.success) {
-          alert('Registration error: ' + data.error);
+          alert('Registration error: ' + (data.error || 'Failed'));
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalHtml;
+          }
           return;
         }
 
+        // Close registration sheet immediately with 0 delay
         closeRegisterSheet();
         playTone('enter');
 
-        // ENGLISH VOICE GREETING:
-        const spokenText = data.spokenGreeting || `Welcome, ${student_name}! You can now enter the Malalasekara Hall.`;
-        speakAnnouncement(spokenText);
-
-        // SHOW CELEBRATION MODAL
-        showAdmissionCelebration(student_name, `${grade} - ${classroom}`, code, spokenText);
-
-        // Also update background verified card
+        // Immediately show verified student card below camera
         showVerifiedStudentCard(data.pass, data.time, null);
+
+        // Reset scan throttle so next pass can be scanned immediately
+        lastCode = '';
+        lastTime = 0;
+
+        // Visual flash on scan status pill
+        const pill = document.getElementById('scan-status-pill');
+        if (pill) {
+          pill.innerHTML = `<span class="text-emerald-300 font-black">✅ ${escapeHtml(code)} Admitted</span>`;
+          setTimeout(() => {
+            pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Ready`;
+          }, 2000);
+        }
 
       } catch (err) {
         alert('Registration failed: ' + err.message);
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = originalHtml;
+        }
       }
-    }
-
-    function showAdmissionCelebration(name, className, code, spokenText) {
-      clearTimeout(celebrationTimer);
-      document.getElementById('celeb-student-name').textContent = name;
-      document.getElementById('celeb-student-class').textContent = `${className} • ${code}`;
-      document.getElementById('celeb-speech-text').textContent = `"${name}, you can now enter Malalasekara Hall."`;
-
-      const modal = document.getElementById('admission-celebration-modal');
-      modal.classList.remove('hidden');
-      if (window.lucide) lucide.createIcons();
-
-      // Automatically close celebration modal after 4.5 seconds to ready camera
-      celebrationTimer = setTimeout(() => {
-        closeAdmissionModal();
-      }, 4500);
-    }
-
-    function closeAdmissionModal() {
-      clearTimeout(celebrationTimer);
-      document.getElementById('admission-celebration-modal').classList.add('hidden');
     }
 
     async function fetchRegisteredStudents() {
