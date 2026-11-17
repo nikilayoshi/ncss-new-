@@ -91,7 +91,7 @@
           </button>
           <button onclick="switchTab('qrprint')" id="tab-btn-qrprint" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 flex-shrink-0 transition-all">
             <i data-lucide="qr-code" class="w-3.5 h-3.5"></i>
-            <span>Print QRs (20 / Sheet)</span>
+            <span>Print QRs (Any Count)</span>
           </button>
           <button onclick="switchTab('phoneconnect')" id="tab-btn-phoneconnect" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 flex-shrink-0 transition-all">
             <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
@@ -156,28 +156,76 @@
           </div>
         </div>
 
-        <!-- Export Actions Bar -->
-        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-xl">
-          <div>
-            <h3 class="text-sm font-bold text-white flex items-center gap-2">
-              <i data-lucide="file-text" class="w-4 h-4 text-red-400"></i>
-              Attendance Reports & Export
-            </h3>
-            <p class="text-[11px] text-slate-400 mt-0.5">Download full attendance list with Arrival & Exit times</p>
+        <!-- ================================================================= -->
+        <!-- CLASS-WISE ATTENDANCE & REPORT DOWNLOAD SECTION -->
+        <!-- ================================================================= -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                <i data-lucide="file-text" class="w-4 h-4 text-red-400"></i>
+                Class-Wise Attendance & Official PDF Reports
+              </h3>
+              <p class="text-[11px] text-slate-400 mt-0.5">
+                Grade 12 & Grade 13 Biology (B1-B4) and Mathematics (M1-M7) breakdown
+              </p>
+            </div>
+
+            <!-- Master PDF Download Button -->
+            <a href="/api/download-attendance-pdf" target="_blank" 
+              class="px-4 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-red-600/30 transition-all">
+              <i data-lucide="file-down" class="w-3.5 h-3.5"></i>
+              <span>Download Master Report (All Classes PDF)</span>
+            </a>
           </div>
 
-          <div class="flex gap-2">
-            <!-- PDF Download -->
-            <a href="/api/download-attendance-pdf" download class="flex-1 sm:flex-none px-4 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-red-600/20 transition-all">
-              <i data-lucide="file-down" class="w-3.5 h-3.5"></i>
-              <span>Download PDF</span>
-            </a>
+          <!-- Specific Class Filter & Download Controls -->
+          <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2 flex-1">
+              <span class="text-xs font-bold text-slate-300 flex items-center gap-1">
+                <i data-lucide="filter" class="w-3.5 h-3.5 text-cyan-400"></i>
+                Select Class:
+              </span>
 
-            <!-- CSV Export -->
-            <a href="/api/export-csv" download class="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all">
-              <i data-lucide="table" class="w-3.5 h-3.5"></i>
-              <span>Export CSV</span>
-            </a>
+              <!-- Grade Selector -->
+              <select id="export-grade-select" class="bg-slate-900 text-slate-200 text-xs rounded-lg px-3 py-2 border border-slate-700 font-semibold focus:outline-none focus:border-red-500">
+                <option value="all">All Grades</option>
+                <option value="Grade 12" selected>Grade 12</option>
+                <option value="Grade 13">Grade 13</option>
+              </select>
+
+              <!-- Class Selector -->
+              <select id="export-class-select" class="bg-slate-900 text-slate-200 text-xs rounded-lg px-3 py-2 border border-slate-700 font-semibold focus:outline-none focus:border-red-500">
+                <option value="all">All Classes</option>
+                <optgroup label="Biology">
+                  <option value="B1">B1 (Biology)</option>
+                  <option value="B2">B2 (Biology)</option>
+                  <option value="B3">B3 (Biology)</option>
+                  <option value="B4">B4 (Biology)</option>
+                </optgroup>
+                <optgroup label="Mathematics">
+                  <option value="M1">M1 (Maths)</option>
+                  <option value="M2">M2 (Maths)</option>
+                  <option value="M3">M3 (Maths)</option>
+                  <option value="M4">M4 (Maths)</option>
+                  <option value="M5">M5 (Maths)</option>
+                  <option value="M6">M6 (Maths)</option>
+                  <option value="M7">M7 (Maths)</option>
+                </optgroup>
+              </select>
+            </div>
+
+            <!-- Action Buttons for Selected Class -->
+            <div class="flex gap-2">
+              <button onclick="downloadSelectedClassPdf()" class="flex-1 md:flex-none px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-blue-600/20 transition-all">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span>Download Class PDF</span>
+              </button>
+              <button onclick="downloadSelectedClassCsv()" class="flex-1 md:flex-none px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all">
+                <i data-lucide="table" class="w-3.5 h-3.5"></i>
+                <span>Export CSV</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -206,7 +254,7 @@
       <section id="tab-students" class="tab-content hidden space-y-4">
         <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
           
-          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+          <div class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
             <div class="relative flex-1">
               <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
                 <i data-lucide="search" class="w-3.5 h-3.5"></i>
@@ -215,20 +263,54 @@
                 class="w-full pl-8 pr-3 py-2 bg-slate-950 text-white text-xs rounded-xl border border-slate-800 focus:outline-none focus:border-red-500">
             </div>
 
-            <div class="flex items-center gap-2">
-              <select id="student-filter" onchange="fetchStudents()" class="bg-slate-950 text-slate-300 text-xs rounded-xl px-3 py-2 border border-slate-800 focus:outline-none focus:border-red-500">
-                <option value="all">All Passes</option>
+            <div class="flex flex-wrap items-center gap-2">
+              <!-- Grade Filter -->
+              <select id="student-filter-grade" onchange="fetchStudents()" class="bg-slate-950 text-slate-300 text-xs rounded-xl px-2.5 py-2 border border-slate-800 focus:outline-none focus:border-red-500">
+                <option value="all">All Grades</option>
+                <option value="Grade 12">Grade 12</option>
+                <option value="Grade 13">Grade 13</option>
+              </select>
+
+              <!-- Class Filter -->
+              <select id="student-filter-class" onchange="fetchStudents()" class="bg-slate-950 text-slate-300 text-xs rounded-xl px-2.5 py-2 border border-slate-800 focus:outline-none focus:border-red-500">
+                <option value="all">All Classes</option>
+                <optgroup label="Biology">
+                  <option value="B1">B1</option>
+                  <option value="B2">B2</option>
+                  <option value="B3">B3</option>
+                  <option value="B4">B4</option>
+                </optgroup>
+                <optgroup label="Mathematics">
+                  <option value="M1">M1</option>
+                  <option value="M2">M2</option>
+                  <option value="M3">M3</option>
+                  <option value="M4">M4</option>
+                  <option value="M5">M5</option>
+                  <option value="M6">M6</option>
+                  <option value="M7">M7</option>
+                </optgroup>
+              </select>
+
+              <!-- Status Filter -->
+              <select id="student-filter" onchange="fetchStudents()" class="bg-slate-950 text-slate-300 text-xs rounded-xl px-2.5 py-2 border border-slate-800 focus:outline-none focus:border-red-500">
+                <option value="all">All Status</option>
                 <option value="inside">🟢 In Hall</option>
                 <option value="left">🔴 Left Hall</option>
                 <option value="registered">Registered</option>
                 <option value="unregistered">Unassigned</option>
               </select>
 
+              <!-- Download Filtered Class PDF -->
+              <button onclick="downloadFilteredTablePdf()" title="Download PDF of currently filtered students" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-md transition-all">
+                <i data-lucide="file-down" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline">Class PDF</span>
+              </button>
+
               <!-- Wipe Test Data Button -->
               <button onclick="wipeAllTestData()" class="px-3 py-2 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800/80 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all">
                 <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                 <span class="hidden sm:inline">Reset All Test Data</span>
-                <span class="sm:hidden">Reset All</span>
+                <span class="sm:hidden">Reset</span>
               </button>
             </div>
           </div>
@@ -263,7 +345,7 @@
       </section>
 
       <!-- ===================================================================== -->
-      <!-- TAB 3: PRINT COMPACT QR CODES (20 PER A4 PAGE) -->
+      <!-- TAB 3: PRINT COMPACT QR CODES (FLEXIBLE: 2, 20, 50, 400 OR CUSTOM) -->
       <!-- ===================================================================== -->
       <section id="tab-qrprint" class="tab-content hidden space-y-4">
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
@@ -275,27 +357,53 @@
                 Print Pure QR Tokens (20 per A4 Sheet)
               </h2>
               <p class="text-xs text-slate-400 mt-1">
-                400 QR Codes = exactly <strong>20 A4 Sheets</strong> (4 columns &times; 5 rows) with NCSS Logo, cutting lines and Pass IDs.
+                Choose any number of QR codes to print! Each A4 sheet fits <strong>20 passes</strong> with cutting lines and the NCSS logo embedded.
               </p>
             </div>
 
-            <form onsubmit="handleDownloadQrPdf(event)" class="space-y-3">
+            <!-- Quick Preset Buttons -->
+            <div class="space-y-1.5">
+              <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Presets:</label>
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <button type="button" onclick="setQrRange(1, 2)" class="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all text-center">
+                  ⚡ 2 Passes (Quick Test)
+                </button>
+                <button type="button" onclick="setQrRange(1, 20)" class="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all text-center">
+                  📄 20 Passes (1 Sheet)
+                </button>
+                <button type="button" onclick="setQrRange(1, 40)" class="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all text-center">
+                  📄 40 Passes (2 Sheets)
+                </button>
+                <button type="button" onclick="setQrRange(1, 100)" class="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all text-center">
+                  📦 100 Passes (5 Sheets)
+                </button>
+                <button type="button" onclick="setQrRange(1, 400)" class="px-3 py-2 bg-red-950/70 hover:bg-red-900 text-red-300 border border-red-800 rounded-xl text-xs font-bold transition-all text-center col-span-2 sm:col-span-2">
+                  🎯 400 Passes (Full Event - 20 Sheets)
+                </button>
+              </div>
+            </div>
+
+            <form onsubmit="handleDownloadQrPdf(event)" class="space-y-3 pt-2 border-t border-slate-800">
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="block text-[10px] font-semibold text-slate-300 uppercase mb-1">From #</label>
-                  <input type="number" id="qr-from-input" value="1" min="1" max="5000"
+                  <input type="number" id="qr-from-input" value="1" min="1" max="5000" oninput="updateQrSheetCount()"
                     class="w-full px-3 py-2 bg-slate-950 text-white text-xs rounded-xl border border-slate-800 font-mono">
                 </div>
                 <div>
                   <label class="block text-[10px] font-semibold text-slate-300 uppercase mb-1">To #</label>
-                  <input type="number" id="qr-to-input" value="400" min="1" max="5000"
+                  <input type="number" id="qr-to-input" value="400" min="1" max="5000" oninput="updateQrSheetCount()"
                     class="w-full px-3 py-2 bg-slate-950 text-white text-xs rounded-xl border border-slate-800 font-mono">
                 </div>
               </div>
 
+              <div id="qr-calc-summary" class="text-[11px] text-cyan-400 font-medium">
+                Generating 400 QR passes = 20 A4 Sheets
+              </div>
+
               <button type="submit" class="w-full py-3 bg-gradient-to-r from-red-600 to-rose-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-600/25 flex items-center justify-center gap-1.5 transition-all">
                 <i data-lucide="file-down" class="w-4 h-4"></i>
-                <span>Download Printable QR PDF (20 / Page)</span>
+                <span>Download Printable QR PDF</span>
               </button>
             </form>
           </div>
@@ -320,44 +428,46 @@
                 <span class="text-[7px] text-slate-400 block italic">Student Pass</span>
               </div>
             </div>
-            <p class="text-[11px] text-slate-400">Cut along the dotted line. Small, convenient, fits on ID cards or student hands!</p>
+            <p class="text-[11px] text-slate-400">
+              Each pass features the NCSS logo embedded in the center with 30% error correction.
+            </p>
           </div>
 
         </div>
       </section>
 
       <!-- ===================================================================== -->
-      <!-- TAB 4: MALLILA SCANNER LINK & PAIRING -->
+      <!-- TAB 4: MALLILA SCANNER PAIRING -->
       <!-- ===================================================================== -->
       <section id="tab-phoneconnect" class="tab-content hidden space-y-4">
-        <div class="max-w-lg mx-auto bg-slate-900/80 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl text-center space-y-4">
+        <div class="max-w-xl mx-auto bg-slate-900/80 border border-slate-800 rounded-2xl p-6 text-center space-y-4 shadow-xl">
           <div>
-            <div class="w-10 h-10 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center mx-auto mb-2 border border-red-500/30">
-              <i data-lucide="smartphone" class="w-5 h-5"></i>
-            </div>
-            <h2 class="text-base sm:text-lg font-black text-white">Prefect / Mallila Phone Scanner</h2>
-            <p class="text-xs text-slate-400 mt-0.5">
-              Give this link to the prefects scanning at the gates.
+            <h2 class="text-base font-bold text-white flex items-center justify-center gap-2">
+              <i data-lucide="smartphone" class="w-5 h-5 text-red-400"></i>
+              Connect Mobile Scanner (For Mallila)
+            </h2>
+            <p class="text-xs text-slate-400 mt-1">
+              Prefects at the gate can scan this QR code on their smartphone to immediately launch the scanner!
             </p>
           </div>
 
-          <div class="p-3.5 bg-red-950/40 border border-red-800/60 rounded-xl text-center space-y-1">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-red-300">Prefect Passcode:</span>
-            <p class="text-2xl font-black font-mono text-white tracking-widest">12345678</p>
-            <p class="text-[10px] text-slate-400">Prefects will be asked to enter this 8-digit passcode once to unlock scanner.</p>
+          <div class="p-3 bg-white rounded-2xl inline-block shadow-2xl">
+            <img id="phone-scanner-qr" src="" alt="Scanner QR" class="w-48 h-48 mx-auto object-contain">
           </div>
 
-          <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-3">
-            <p class="text-xs font-bold uppercase tracking-wider text-red-400">Scan QR with Prefect's Phone Camera:</p>
-            
-            <div class="w-44 h-44 bg-white p-2 rounded-2xl mx-auto shadow-xl flex items-center justify-center">
-              <img id="phone-scanner-qr" src="" alt="Scanner QR" class="w-full h-full object-contain">
-            </div>
+          <div class="space-y-1">
+            <p class="text-[11px] text-slate-400">Mobile Scanner Direct Link:</p>
+            <p id="phone-scanner-url" class="font-mono text-xs text-red-400 font-bold break-all bg-slate-950 p-2.5 rounded-xl border border-slate-800"></p>
+          </div>
 
-            <div class="space-y-1">
-              <p class="text-[11px] text-slate-400">Direct Link:</p>
-              <p id="phone-scanner-url" class="font-mono text-xs font-bold text-red-400 select-all bg-slate-900 py-1.5 px-3 rounded-lg border border-slate-800 inline-block"></p>
-            </div>
+          <div class="p-3 bg-red-950/40 border border-red-800/60 rounded-xl text-left text-xs space-y-1">
+            <p class="font-bold text-red-300 flex items-center gap-1.5">
+              <i data-lucide="key" class="w-3.5 h-3.5"></i>
+              Prefect Passcode: <span class="font-mono text-white text-sm bg-red-900 px-2 py-0.5 rounded">12345678</span>
+            </p>
+            <p class="text-[11px] text-slate-400">
+              Give passcode <strong class="text-white">12345678</strong> to prefects to unlock the camera scanner on their phones.
+            </p>
           </div>
         </div>
       </section>
@@ -366,6 +476,6 @@
 
   </div>
 
-  <script src="app.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>

@@ -16,6 +16,8 @@ document.addEventListener('DOMContentLoaded', () => {
     unlockPortal();
   }
 
+  updateQrSheetCount();
+
   setInterval(() => {
     if (getAdminPassword() && currentTab === 'dashboard') {
       refreshDashboard();
@@ -170,7 +172,31 @@ function renderRecentLogs(logs) {
 }
 
 // -----------------------------------------------------------------------------
-// STUDENTS DIRECTORY TABLE
+// CLASS-WISE REPORT DOWNLOAD ACTIONS
+// -----------------------------------------------------------------------------
+function downloadSelectedClassPdf() {
+  const grade = document.getElementById('export-grade-select')?.value || 'all';
+  const classroom = document.getElementById('export-class-select')?.value || 'all';
+  const url = `/api/download-attendance-pdf?grade=${encodeURIComponent(grade)}&classroom=${encodeURIComponent(classroom)}`;
+  window.open(url, '_blank');
+}
+
+function downloadSelectedClassCsv() {
+  const grade = document.getElementById('export-grade-select')?.value || 'all';
+  const classroom = document.getElementById('export-class-select')?.value || 'all';
+  const url = `/api/export-csv?grade=${encodeURIComponent(grade)}&classroom=${encodeURIComponent(classroom)}`;
+  window.open(url, '_blank');
+}
+
+function downloadFilteredTablePdf() {
+  const grade = document.getElementById('student-filter-grade')?.value || 'all';
+  const classroom = document.getElementById('student-filter-class')?.value || 'all';
+  const url = `/api/download-attendance-pdf?grade=${encodeURIComponent(grade)}&classroom=${encodeURIComponent(classroom)}`;
+  window.open(url, '_blank');
+}
+
+// -----------------------------------------------------------------------------
+// STUDENTS DIRECTORY TABLE (With Grade & Class Filters)
 // -----------------------------------------------------------------------------
 function debounceStudentSearch() {
   clearTimeout(studentSearchTimeout);
@@ -189,9 +215,20 @@ function changeStudentPage(delta) {
 async function fetchStudents() {
   const search = document.getElementById('student-search-input')?.value || '';
   const filter = document.getElementById('student-filter')?.value || 'all';
+  const grade = document.getElementById('student-filter-grade')?.value || 'all';
+  const classroom = document.getElementById('student-filter-class')?.value || 'all';
 
   try {
-    const res = await fetch(`/api/passes?search=${encodeURIComponent(search)}&filter=${filter}&page=${currentStudentPage}&limit=40`, {
+    const queryParams = new URLSearchParams({
+      search,
+      filter,
+      grade,
+      classroom,
+      page: currentStudentPage,
+      limit: 40
+    });
+
+    const res = await fetch(`/api/passes?${queryParams.toString()}`, {
       headers: { 'x-admin-password': getAdminPassword() }
     });
     const data = await res.json();
@@ -237,7 +274,7 @@ function renderStudentsTable(passes) {
     const arrTime = p.arrival_time ? new Date(p.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
     const extTime = p.exit_time ? new Date(p.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
 
-    // Show delete button only if registered, or can reset any pass
+    // Show delete button only if registered, or fresh
     const deleteBtn = p.is_registered
       ? `<button onclick="resetPass('${p.code}', '${escapeJs(p.student_name || '')}')" title="Delete Student & Make QR Fresh Again" 
            class="px-2 py-1 bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-800/80 rounded-lg text-[10px] font-bold flex items-center gap-1 ml-auto">
@@ -264,10 +301,10 @@ function renderStudentsTable(passes) {
   if (window.lucide) lucide.createIcons();
 }
 
-// Delete / Reset single student (Make QR fresh & reusable)
+// Delete / Reset single student (Make QR fresh & reusable in SQLite + Firestore)
 async function resetPass(code, studentName) {
   const confirmMsg = studentName
-    ? `Are you sure you want to delete student "${studentName}" from pass ${code}?\n\nThis will wipe all data for this student and make QR code ${code} 100% FRESH and UNASSIGNED again so you can assign it to someone else.`
+    ? `Are you sure you want to delete student "${studentName}" from pass ${code}?\n\nThis will wipe all data for this student in local database AND Firebase Firestore, making QR code ${code} 100% FRESH and UNASSIGNED again so you can assign it to someone else.`
     : `Reset pass ${code} back to unassigned?`;
 
   if (!confirm(confirmMsg)) return;
@@ -294,9 +331,9 @@ async function resetPass(code, studentName) {
   }
 }
 
-// WIPE ALL TEST DATA (Reset all 400 passes)
+// WIPE ALL TEST DATA (Reset all passes in SQLite AND Firestore)
 async function wipeAllTestData() {
-  const confirm1 = confirm("⚠️ WIPE ALL TEST DATA:\n\nAre you sure you want to delete ALL registered test students?\nAll 400 QR passes will become brand new, blank and unassigned!");
+  const confirm1 = confirm("⚠️ WIPE ALL TEST DATA:\n\nAre you sure you want to delete ALL registered test students from local DB and Firebase Firestore?\nAll QR passes will become brand new, blank and unassigned!");
   if (!confirm1) return;
 
   const confirm2 = confirm("⚠️ FINAL CONFIRMATION:\n\nClick OK to permanently erase all test registrations and reset all scan logs.");
@@ -312,7 +349,7 @@ async function wipeAllTestData() {
     });
     const data = await res.json();
     if (data.success) {
-      alert("🎉 All test data wiped! All 400 QR passes are now brand new and ready for Science Day.");
+      alert("🎉 All test data wiped from Local DB and Firestore! All QR passes are now brand new and ready for Science Day.");
       fetchStudents();
       refreshDashboard();
     } else {
@@ -324,8 +361,28 @@ async function wipeAllTestData() {
 }
 
 // -----------------------------------------------------------------------------
-// PRINT QR CODES
+// PRINT QR CODES (FLEXIBLE RANGE: 2, 20, 50, 400, CUSTOM)
 // -----------------------------------------------------------------------------
+function setQrRange(from, to) {
+  const fromInput = document.getElementById('qr-from-input');
+  const toInput = document.getElementById('qr-to-input');
+  if (fromInput) fromInput.value = from;
+  if (toInput) toInput.value = to;
+  updateQrSheetCount();
+}
+
+function updateQrSheetCount() {
+  const from = parseInt(document.getElementById('qr-from-input')?.value || '1', 10);
+  const to = parseInt(document.getElementById('qr-to-input')?.value || '400', 10);
+  const count = Math.max(1, to - from + 1);
+  const sheets = Math.ceil(count / 20);
+
+  const calcEl = document.getElementById('qr-calc-summary');
+  if (calcEl) {
+    calcEl.textContent = `Generating ${count} QR passes (from #${from} to #${to}) = ${sheets} A4 Sheet${sheets > 1 ? 's' : ''}`;
+  }
+}
+
 function handleDownloadQrPdf(e) {
   e.preventDefault();
   const from = document.getElementById('qr-from-input').value || '1';

@@ -11,7 +11,15 @@ const selfsigned = require('selfsigned');
 
 // Firebase App & Firestore
 const { initializeApp } = require('firebase/app');
-const { getFirestore, doc, setDoc } = require('firebase/firestore');
+const { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  getDocs, 
+  collection, 
+  deleteDoc 
+} = require('firebase/firestore');
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Nikila2008326@';
 const PREFECT_PASSWORD = process.env.PREFECT_PASSWORD || '12345678';
@@ -44,17 +52,6 @@ try {
   console.log('[Firebase] Connected to project: studenyt-1c8b7');
 } catch (e) {
   console.warn('[Firebase] Init notice:', e.message);
-}
-
-// Background sync to Firestore
-async function syncToFirestore(collectionName, docId, data) {
-  if (!firestoreDb) return;
-  try {
-    const docRef = doc(firestoreDb, collectionName, docId);
-    await setDoc(docRef, data, { merge: true });
-  } catch (err) {
-    console.warn(`[Firebase Sync Notice] ${err.message}`);
-  }
 }
 
 // Database directory (On Vercel use /tmp, locally use ./data)
@@ -115,6 +112,98 @@ function seedPasses(total = 400, prefix = 'SCI-') {
 }
 seedPasses(400);
 
+// -----------------------------------------------------------------------------
+// TWO-WAY FIRESTORE SYNC
+// -----------------------------------------------------------------------------
+let lastFirestoreSync = 0;
+
+async function syncFromFirestore(force = false) {
+  if (!firestoreDb) return;
+  const now = Date.now();
+  if (!force && now - lastFirestoreSync < 3000) return;
+  lastFirestoreSync = now;
+
+  try {
+    const snap = await getDocs(collection(firestoreDb, 'passes'));
+    if (!snap.empty) {
+      const updateStmt = db.prepare(`
+        INSERT INTO passes (
+          code, student_name, grade, classroom, school_or_grade,
+          is_registered, registered_at, arrival_time, exit_time, status, scan_count, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(code) DO UPDATE SET
+          student_name = excluded.student_name,
+          grade = excluded.grade,
+          classroom = excluded.classroom,
+          school_or_grade = excluded.school_or_grade,
+          is_registered = excluded.is_registered,
+          registered_at = excluded.registered_at,
+          arrival_time = excluded.arrival_time,
+          exit_time = excluded.exit_time,
+          status = excluded.status,
+          scan_count = excluded.scan_count,
+          notes = excluded.notes
+      `);
+
+      const firestoreRegisteredCodes = new Set();
+
+      db.exec('BEGIN TRANSACTION');
+      snap.forEach(d => {
+        const data = d.data();
+        if (data.is_registered) {
+          firestoreRegisteredCodes.add(d.id);
+        }
+        updateStmt.run(
+          d.id,
+          data.student_name || null,
+          data.grade || null,
+          data.classroom || null,
+          data.school_or_grade || null,
+          data.is_registered ? 1 : 0,
+          data.registered_at || null,
+          data.arrival_time || null,
+          data.exit_time || null,
+          data.status || 'UNREGISTERED',
+          Number(data.scan_count || 0),
+          data.notes || null
+        );
+      });
+
+      // Clear any passes in SQLite that were wiped or reset in Firestore
+      const localRegistered = db.prepare('SELECT code FROM passes WHERE is_registered = 1').all();
+      for (const row of localRegistered) {
+        if (!firestoreRegisteredCodes.has(row.code)) {
+          db.prepare(`
+            UPDATE passes SET
+              student_name = NULL, grade = NULL, classroom = NULL, school_or_grade = NULL,
+              is_registered = 0, registered_at = NULL, arrival_time = NULL, exit_time = NULL,
+              status = 'UNREGISTERED', scan_count = 0, notes = NULL
+            WHERE code = ?
+          `).run(row.code);
+        }
+      }
+
+      db.exec('COMMIT');
+      console.log(`[Firebase Sync] Synced ${snap.size} passes from Firestore.`);
+    }
+  } catch (err) {
+    console.warn('[Firebase Pull Notice]', err.message);
+  }
+}
+
+async function syncToFirestore(collectionName, docId, data) {
+  if (!firestoreDb) return;
+  try {
+    const docRef = doc(firestoreDb, collectionName, docId);
+    await setDoc(docRef, data, { merge: true });
+  } catch (err) {
+    console.warn(`[Firebase Sync Error] ${err.message}`);
+  }
+}
+
+// Initial Sync from Firestore on startup
+syncFromFirestore(true).catch(e => console.warn('[Initial Sync Notice]', e.message));
+
 function getLocalIpAddress() {
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
@@ -169,8 +258,9 @@ app.post('/api/auth/prefect', (req, res) => {
 // SCANNER APIS
 // -----------------------------------------------------------------------------
 
-app.get('/api/next-pass', (req, res) => {
+app.get('/api/next-pass', async (req, res) => {
   try {
+    await syncFromFirestore();
     const unassigned = db.prepare("SELECT code FROM passes WHERE is_registered = 0 ORDER BY code ASC LIMIT 1").get();
     if (unassigned) {
       return res.json({ success: true, code: unassigned.code });
@@ -188,26 +278,30 @@ app.get('/api/next-pass', (req, res) => {
   }
 });
 
-// 1. Scan QR Code (Shows status WITHOUT auto-changing!)
-app.post('/api/scan', (req, res) => {
+// 1. Scan QR Code (Verifies identity without auto-exiting)
+app.post('/api/scan', async (req, res) => {
   try {
+    await syncFromFirestore();
+
     let { code } = req.body;
     if (!code) {
       return res.status(400).json({ success: false, error: 'Code is required' });
     }
 
     code = code.trim().toUpperCase();
+
+    // Verify it is an official NCSS Science Day pass
+    if (!code.startsWith('SCI-')) {
+      return res.json({
+        success: false,
+        status: 'INVALID_QR',
+        message: 'Invalid QR Code! Only official NCSS Science Day passes are accepted.'
+      });
+    }
+
     let pass = db.prepare('SELECT * FROM passes WHERE code = ?').get(code);
 
     if (!pass) {
-      if (!code.startsWith('SCI-')) {
-        return res.json({
-          success: false,
-          status: 'INVALID_QR',
-          message: 'Not a valid Science Day QR code! Only official passes are accepted.'
-        });
-      }
-
       db.prepare(`
         INSERT INTO passes (code, is_registered, status, scan_count)
         VALUES (?, 0, 'UNREGISTERED', 0)
@@ -215,7 +309,7 @@ app.post('/api/scan', (req, res) => {
       pass = db.prepare('SELECT * FROM passes WHERE code = ?').get(code);
     }
 
-    // CASE 1: Pass is unassigned (First time scan) -> Prompt registration!
+    // CASE 1: Pass is unassigned (First time scan) -> Prompt registration form
     if (!pass.is_registered) {
       return res.json({
         success: true,
@@ -226,7 +320,7 @@ app.post('/api/scan', (req, res) => {
     }
 
     // CASE 2: Pass is ALREADY REGISTERED -> Returns current details & status!
-    // NO AUTO EXIT! Prefect explicitly taps "Mark as Left" if the student is leaving!
+    // NO AUTO EXIT! Prefect explicitly taps "Mark as Left" if student is leaving.
     const arrTime = pass.arrival_time ? new Date(pass.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
     const extTime = pass.exit_time ? new Date(pass.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
 
@@ -245,9 +339,11 @@ app.post('/api/scan', (req, res) => {
   }
 });
 
-// 2. Explicitly Mark Student Status (EXIT / RE-ENTRY) with confirmation button!
-app.post('/api/mark-status', (req, res) => {
+// 2. Explicitly Mark Student Status (EXIT / RE-ENTRY) with button click
+app.post('/api/mark-status', async (req, res) => {
   try {
+    await syncFromFirestore();
+
     let { code, action = 'EXIT' } = req.body;
     if (!code) return res.status(400).json({ success: false, error: 'Code is required' });
 
@@ -274,10 +370,10 @@ app.post('/api/mark-status', (req, res) => {
       db.prepare(`
         INSERT INTO scan_logs (code, student_name, action, timestamp, scanner_device, details)
         VALUES (?, ?, 'STUDENT_EXIT', ?, 'Mobile Scanner', ?)
-      `).run(code, pass.student_name, nowIso, `Left at ${timeFormatted}`);
+      `).run(code, pass.student_name, nowIso, `Left hall at ${timeFormatted}`);
 
       const updated = db.prepare('SELECT * FROM passes WHERE code = ?').get(code);
-      syncToFirestore('passes', code, { ...updated, last_updated: nowIso });
+      await syncToFirestore('passes', code, { ...updated, last_updated: nowIso });
 
       return res.json({
         success: true,
@@ -285,7 +381,8 @@ app.post('/api/mark-status', (req, res) => {
         pass: updated,
         time: timeFormatted,
         date: dateFormatted,
-        message: `Student ${pass.student_name} marked as LEFT HALL at ${timeFormatted}`
+        message: `Student ${pass.student_name} marked as LEFT HALL at ${timeFormatted}`,
+        spokenAnnouncement: `Thank you, ${pass.student_name}! Exit recorded.`
       });
 
     } else {
@@ -299,10 +396,10 @@ app.post('/api/mark-status', (req, res) => {
       db.prepare(`
         INSERT INTO scan_logs (code, student_name, action, timestamp, scanner_device, details)
         VALUES (?, ?, 'STUDENT_RE_ENTRY', ?, 'Mobile Scanner', ?)
-      `).run(code, pass.student_name, nowIso, `Re-entered at ${timeFormatted}`);
+      `).run(code, pass.student_name, nowIso, `Re-entered hall at ${timeFormatted}`);
 
       const updated = db.prepare('SELECT * FROM passes WHERE code = ?').get(code);
-      syncToFirestore('passes', code, { ...updated, last_updated: nowIso });
+      await syncToFirestore('passes', code, { ...updated, last_updated: nowIso });
 
       return res.json({
         success: true,
@@ -310,7 +407,8 @@ app.post('/api/mark-status', (req, res) => {
         pass: updated,
         time: timeFormatted,
         date: dateFormatted,
-        message: `Student ${pass.student_name} marked as RE-ENTERED at ${timeFormatted}`
+        message: `Student ${pass.student_name} marked as RE-ENTERED at ${timeFormatted}`,
+        spokenAnnouncement: `Welcome back, ${pass.student_name}! You may enter the Malalasekara Hall.`
       });
     }
 
@@ -319,9 +417,11 @@ app.post('/api/mark-status', (req, res) => {
   }
 });
 
-// 3. Register Student
+// 3. Register Student & Admit to Hall
 app.post('/api/register', async (req, res) => {
   try {
+    await syncFromFirestore();
+
     let {
       code,
       student_name,
@@ -379,12 +479,13 @@ app.post('/api/register', async (req, res) => {
       student_name,
       nowIso,
       scanner_device,
-      `${school_or_grade} • Registered & Entered`
+      `${school_or_grade} • Registered & Admitted to Malalasekara Hall`
     );
 
     const savedPass = db.prepare('SELECT * FROM passes WHERE code = ?').get(code);
 
-    syncToFirestore('passes', code, {
+    // Save to Firestore and AWAIT
+    await syncToFirestore('passes', code, {
       ...savedPass,
       last_updated: nowIso
     });
@@ -394,7 +495,8 @@ app.post('/api/register', async (req, res) => {
       message: `Pass ${code} permanently assigned to ${student_name}!`,
       pass: savedPass,
       date: now.toLocaleDateString(),
-      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      spokenGreeting: `Welcome, ${student_name}! You can now enter the Malalasekara Hall.`
     });
 
   } catch (err) {
@@ -403,16 +505,18 @@ app.post('/api/register', async (req, res) => {
 });
 
 // 4. Registered students list for Mobile Scanner
-app.get('/api/registered-students', (req, res) => {
+app.get('/api/registered-students', async (req, res) => {
   try {
-    const { search = '', limit = 60 } = req.query;
+    await syncFromFirestore();
+
+    const { search = '', limit = 100 } = req.query;
     let query = 'SELECT code, student_name, grade, classroom, status, arrival_time, exit_time FROM passes WHERE is_registered = 1';
     const params = [];
 
     if (search.trim()) {
-      query += ' AND (student_name LIKE ? OR code LIKE ? OR classroom LIKE ?)';
+      query += ' AND (student_name LIKE ? OR code LIKE ? OR classroom LIKE ? OR grade LIKE ?)';
       const s = `%${search.trim()}%`;
-      params.push(s, s, s);
+      params.push(s, s, s, s);
     }
 
     query += ' ORDER BY rowid DESC LIMIT ?';
@@ -429,8 +533,10 @@ app.get('/api/registered-students', (req, res) => {
 // PROTECTED ADMIN APIS
 // -----------------------------------------------------------------------------
 
-app.get('/api/stats', checkAdminAuth, (req, res) => {
+app.get('/api/stats', checkAdminAuth, async (req, res) => {
   try {
+    await syncFromFirestore();
+
     const totalRow = db.prepare('SELECT COUNT(*) as count FROM passes').get();
     const registeredRow = db.prepare('SELECT COUNT(*) as count FROM passes WHERE is_registered = 1').get();
     const insideRow = db.prepare("SELECT COUNT(*) as count FROM passes WHERE status = 'INSIDE'").get();
@@ -460,9 +566,19 @@ app.get('/api/stats', checkAdminAuth, (req, res) => {
   }
 });
 
-app.get('/api/passes', checkAdminAuth, (req, res) => {
+app.get('/api/passes', checkAdminAuth, async (req, res) => {
   try {
-    const { search = '', filter = 'all', page = 1, limit = 50 } = req.query;
+    await syncFromFirestore();
+
+    const { 
+      search = '', 
+      filter = 'all', 
+      grade = 'all', 
+      classroom = 'all', 
+      page = 1, 
+      limit = 50 
+    } = req.query;
+
     let query = 'SELECT * FROM passes WHERE 1=1';
     const params = [];
 
@@ -480,6 +596,16 @@ app.get('/api/passes', checkAdminAuth, (req, res) => {
       query += ' AND is_registered = 1';
     } else if (filter === 'unregistered') {
       query += ' AND is_registered = 0';
+    }
+
+    if (grade !== 'all' && grade.trim()) {
+      query += ' AND grade = ?';
+      params.push(grade.trim());
+    }
+
+    if (classroom !== 'all' && classroom.trim()) {
+      query += ' AND classroom = ?';
+      params.push(classroom.trim().toUpperCase());
     }
 
     query += ' ORDER BY code ASC';
@@ -503,8 +629,8 @@ app.get('/api/passes', checkAdminAuth, (req, res) => {
   }
 });
 
-// Reset / Delete single student pass
-app.post('/api/passes/reset', checkAdminAuth, (req, res) => {
+// Reset / Delete single student pass (Make QR fresh & reusable)
+app.post('/api/passes/reset', checkAdminAuth, async (req, res) => {
   try {
     const { code } = req.body;
     if (!code) return res.status(400).json({ success: false, error: 'Code required' });
@@ -525,15 +651,13 @@ app.post('/api/passes/reset', checkAdminAuth, (req, res) => {
       WHERE code = ?
     `).run(code);
 
-    syncToFirestore('passes', code, {
-      is_registered: 0,
-      status: 'UNREGISTERED',
-      student_name: null,
-      grade: null,
-      classroom: null,
-      arrival_time: null,
-      exit_time: null
-    });
+    if (firestoreDb) {
+      try {
+        await deleteDoc(doc(firestoreDb, 'passes', code));
+      } catch (e) {
+        console.warn('[Firebase Delete Doc]', e.message);
+      }
+    }
 
     return res.json({ success: true, message: `Pass ${code} is now completely fresh, unassigned and ready for reuse!` });
   } catch (err) {
@@ -541,8 +665,8 @@ app.post('/api/passes/reset', checkAdminAuth, (req, res) => {
   }
 });
 
-// WIPE ALL TEST DATA
-app.post('/api/passes/reset-all', checkAdminAuth, (req, res) => {
+// WIPE ALL TEST DATA (Reset all passes in SQLite AND Firestore)
+app.post('/api/passes/reset-all', checkAdminAuth, async (req, res) => {
   try {
     db.prepare(`
       UPDATE passes SET
@@ -561,59 +685,40 @@ app.post('/api/passes/reset-all', checkAdminAuth, (req, res) => {
 
     db.prepare("DELETE FROM scan_logs").run();
 
-    return res.json({
-      success: true,
-      message: 'All test data wiped successfully! All 400 QR passes are now brand new and blank.'
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.post('/api/generate-batch', checkAdminAuth, (req, res) => {
-  try {
-    const count = parseInt(req.body.count || '100', 10);
-    const prefix = req.body.prefix || 'SCI-';
-
-    const currentMaxRow = db.prepare(`
-      SELECT code FROM passes WHERE code LIKE ? ORDER BY code DESC LIMIT 1
-    `).get(`${prefix}%`);
-
-    let startNum = 1;
-    if (currentMaxRow && currentMaxRow.code) {
-      const match = currentMaxRow.code.match(/\d+$/);
-      if (match) {
-        startNum = parseInt(match[0], 10) + 1;
+    if (firestoreDb) {
+      try {
+        const snap = await getDocs(collection(firestoreDb, 'passes'));
+        const deleteOps = [];
+        snap.forEach(d => {
+          deleteOps.push(deleteDoc(d.ref));
+        });
+        await Promise.all(deleteOps);
+        console.log(`[Firebase] Cleared ${snap.size} documents during Reset All`);
+      } catch (e) {
+        console.warn('[Firebase Reset All Error]', e.message);
       }
     }
 
-    const insertStmt = db.prepare(`
-      INSERT OR IGNORE INTO passes (code, is_registered, status, scan_count)
-      VALUES (?, 0, 'UNREGISTERED', 0)
-    `);
-
-    db.exec('BEGIN TRANSACTION');
-    for (let i = 0; i < count; i++) {
-      const code = `${prefix}${String(startNum + i).padStart(4, '0')}`;
-      insertStmt.run(code);
-    }
-    db.exec('COMMIT');
-
-    res.json({
+    return res.json({
       success: true,
-      message: `Generated ${count} new passes (${prefix}${String(startNum).padStart(4, '0')} to ${prefix}${String(startNum + count - 1).padStart(4, '0')})`
+      message: 'All test data wiped successfully from local database and Firestore! All passes are now fresh and unassigned.'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Download 20-per-sheet QR PDF
+// -----------------------------------------------------------------------------
+// QR PDF GENERATION (FLEXIBLE COUNT: 2, 20, 50, 400, OR CUSTOM)
+// -----------------------------------------------------------------------------
 app.get('/api/download-qr-pdf', async (req, res) => {
   try {
-    const from = parseInt(req.query.from || '1', 10);
-    const to = parseInt(req.query.to || '400', 10);
+    const from = Math.max(1, parseInt(req.query.from || '1', 10));
+    const to = Math.max(from, parseInt(req.query.to || '400', 10));
     const prefix = req.query.prefix || 'SCI-';
+
+    // Ensure database has passes seeded up to `to`
+    seedPasses(to, prefix);
 
     const passesList = [];
     for (let i = from; i <= to; i++) {
@@ -666,6 +771,7 @@ app.get('/api/download-qr-pdf', async (req, res) => {
         color: { dark: '#0f172a', light: '#ffffff' }
       });
 
+      // Card border with dotted cutting guide
       doc.save();
       doc.lineWidth(0.6)
         .dash(3, { space: 2.5 })
@@ -674,6 +780,7 @@ app.get('/api/download-qr-pdf', async (req, res) => {
         .stroke();
       doc.restore();
 
+      // Card Header
       doc.save();
       if (hasLogo) {
         doc.image(logoPath, x + 8, y + 4, { width: 12, height: 12 });
@@ -687,11 +794,13 @@ app.get('/api/download-qr-pdf', async (req, res) => {
         });
       doc.restore();
 
+      // QR Code
       const qrSize = 95;
       const qrX = x + (cardWidth - qrSize) / 2;
       const qrY = y + 18;
       doc.image(qrBuffer, qrX, qrY, { width: qrSize, height: qrSize });
 
+      // Embed NCSS Logo in center of QR
       if (hasLogo) {
         doc.save();
         const centerX = qrX + qrSize / 2;
@@ -701,6 +810,7 @@ app.get('/api/download-qr-pdf', async (req, res) => {
         doc.restore();
       }
 
+      // Code Pill
       const pillW = 86;
       const pillH = 17;
       const pillX = x + (cardWidth - pillW) / 2;
@@ -717,6 +827,7 @@ app.get('/api/download-qr-pdf', async (req, res) => {
         .text(code, pillX, pillY + 4, { width: pillW, align: 'center' });
       doc.restore();
 
+      // Footer
       doc.fontSize(5.5)
         .font('Helvetica')
         .fillColor('#94a3b8')
@@ -731,17 +842,38 @@ app.get('/api/download-qr-pdf', async (req, res) => {
   }
 });
 
-// Download Attendance Report PDF
-app.get('/api/download-attendance-pdf', (req, res) => {
+// -----------------------------------------------------------------------------
+// CLASS-WISE ATTENDANCE PDF REPORT GENERATOR (GRADE 12 & 13: B1-B4, M1-M7)
+// -----------------------------------------------------------------------------
+app.get('/api/download-attendance-pdf', async (req, res) => {
   try {
-    const students = db.prepare(`
-      SELECT * FROM passes 
-      WHERE is_registered = 1 
-      ORDER BY grade ASC, classroom ASC, student_name ASC
-    `).all();
+    await syncFromFirestore();
+
+    const { grade = 'all', classroom = 'all' } = req.query;
+
+    let query = 'SELECT * FROM passes WHERE is_registered = 1';
+    const params = [];
+
+    if (grade !== 'all' && grade.trim()) {
+      query += ' AND grade = ?';
+      params.push(grade.trim());
+    }
+
+    if (classroom !== 'all' && classroom.trim()) {
+      query += ' AND classroom = ?';
+      params.push(classroom.trim().toUpperCase());
+    }
+
+    query += ' ORDER BY grade ASC, classroom ASC, student_name ASC';
+    const students = db.prepare(query).all(...params);
+
+    const isSpecificClass = (grade !== 'all' && classroom !== 'all');
+    const filename = isSpecificClass 
+      ? `NCSS_Attendance_${grade.replace(/\s+/g, '_')}_${classroom}_${new Date().toISOString().slice(0, 10)}.pdf`
+      : `NCSS_Master_Classwise_Attendance_${new Date().toISOString().slice(0, 10)}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="NCSS_Science_Day_Attendance_${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
     const doc = new PDFDocument({
       size: 'A4',
@@ -751,79 +883,247 @@ app.get('/api/download-attendance-pdf', (req, res) => {
     doc.pipe(res);
 
     const logoPath = path.join(__dirname, 'public', 'logo.png');
-    if (fs.existsSync(logoPath)) {
-      doc.image(logoPath, 30, 26, { width: 34, height: 34 });
-    }
+    const hasLogo = fs.existsSync(logoPath);
 
-    doc.fontSize(16).font('Helvetica-Bold').fillColor('#0f172a').text('NCSS SCIENCE DAY 2026 • ATTENDANCE REPORT', 70, 30);
-    doc.fontSize(8.5).font('Helvetica').fillColor('#64748b').text(`Generated: ${new Date().toLocaleString()} | Total Students: ${students.length}`, 70, 48);
-    doc.moveDown(1.2);
-
-    const insideCount = students.filter(s => s.status === 'INSIDE').length;
-    const leftCount = students.filter(s => s.status === 'LEFT').length;
-
-    doc.save();
-    doc.rect(30, 75, 535, 24).fillColor('#f1f5f9').fill();
-    doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#0369a1')
-      .text(`🟢 In Hall: ${insideCount}   |   🔴 Left Hall: ${leftCount}   |   Total Registered: ${students.length}`, 40, 83);
-    doc.restore();
-
-    const tableTop = 110;
-    const rowHeight = 20;
-
-    function drawTableHeader(y) {
-      doc.save();
-      doc.rect(30, y, 535, 18).fillColor('#1e293b').fill();
-      doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#ffffff');
-      doc.text('#', 35, y + 5, { width: 20 });
-      doc.text('CODE', 60, y + 5, { width: 55 });
-      doc.text('STUDENT NAME', 120, y + 5, { width: 140 });
-      doc.text('GRADE', 265, y + 5, { width: 50 });
-      doc.text('CLASS', 320, y + 5, { width: 40 });
-      doc.text('ARRIVAL (IN)', 365, y + 5, { width: 75 });
-      doc.text('EXIT (OUT)', 445, y + 5, { width: 75 });
-      doc.text('STATUS', 525, y + 5, { width: 40 });
-      doc.restore();
-    }
-
-    drawTableHeader(tableTop);
-
-    let currentY = tableTop + 18;
-
-    students.forEach((s, idx) => {
-      if (currentY + rowHeight > 780) {
-        doc.addPage();
-        drawTableHeader(40);
-        currentY = 40 + 18;
+    // Header Drawing Function
+    function drawHeader(title, subtitle) {
+      if (hasLogo) {
+        doc.image(logoPath, 30, 24, { width: 36, height: 36 });
       }
+      doc.fontSize(14).font('Helvetica-Bold').fillColor('#991b1b')
+        .text('NCSS SCIENCE DAY 2026', 74, 25);
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#0f172a')
+        .text(title, 74, 40);
+      doc.fontSize(7.5).font('Helvetica').fillColor('#64748b')
+        .text(`${subtitle} • Generated: ${new Date().toLocaleString()}`, 74, 53);
+    }
 
-      if (idx % 2 === 1) {
+    // Single Class Report Mode
+    if (isSpecificClass) {
+      drawHeader(`CLASS ATTENDANCE SHEET: ${grade.toUpperCase()} - ${classroom}`, `Official Class Attendance & Hall Status`);
+
+      const totalInClass = students.length;
+      const insideInClass = students.filter(s => s.status === 'INSIDE').length;
+      const leftInClass = students.filter(s => s.status === 'LEFT').length;
+
+      // Summary Bar
+      doc.save();
+      doc.roundedRect(30, 70, 535, 24, 4).fillColor('#f8fafc').fill();
+      doc.lineWidth(0.5).strokeColor('#cbd5e1').roundedRect(30, 70, 535, 24, 4).stroke();
+      doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#0f172a')
+        .text(`Class: ${grade} - ${classroom}   |   Total Registered: ${totalInClass}   |   🟢 In Hall: ${insideInClass}   |   🔴 Left Hall: ${leftInClass}`, 40, 77);
+      doc.restore();
+
+      let currentY = 104;
+      const rowHeight = 22;
+
+      function drawClassTableHeader(y) {
         doc.save();
-        doc.rect(30, currentY, 535, rowHeight).fillColor('#f8fafc').fill();
+        doc.rect(30, y, 535, 18).fillColor('#1e293b').fill();
+        doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#ffffff');
+        doc.text('#', 35, y + 5, { width: 25 });
+        doc.text('PASS CODE', 65, y + 5, { width: 65 });
+        doc.text('STUDENT NAME', 135, y + 5, { width: 175 });
+        doc.text('ARRIVAL (IN)', 315, y + 5, { width: 85 });
+        doc.text('EXIT (OUT)', 405, y + 5, { width: 80 });
+        doc.text('STATUS', 490, y + 5, { width: 70 });
         doc.restore();
       }
 
-      const arrTime = s.arrival_time ? new Date(s.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
-      const extTime = s.exit_time ? new Date(s.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
-      const statusText = s.status === 'INSIDE' ? 'INSIDE' : (s.status === 'LEFT' ? 'LEFT' : 'REGISTERED');
-      const statusColor = s.status === 'INSIDE' ? '#16a34a' : (s.status === 'LEFT' ? '#dc2626' : '#64748b');
+      drawClassTableHeader(currentY);
+      currentY += 18;
 
-      doc.fontSize(7).font('Helvetica').fillColor('#475569').text(String(idx + 1), 35, currentY + 6);
-      doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#0284c7').text(s.code, 60, currentY + 6);
-      doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#0f172a').text(s.student_name || '-', 120, currentY + 6, { width: 140, ellipsis: true });
-      doc.fontSize(7.5).font('Helvetica').fillColor('#334155').text(s.grade || '-', 265, currentY + 6);
-      doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#334155').text(s.classroom || '-', 320, currentY + 6);
-      doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#334155').text(s.classroom || '-', 320, currentY + 6);
-      doc.fontSize(7).font('Helvetica').fillColor('#475569').text(arrTime, 365, currentY + 6);
-      doc.fontSize(7).font('Helvetica').fillColor('#475569').text(extTime, 445, currentY + 6);
-      doc.fontSize(7).font('Helvetica-Bold').fillColor(statusColor).text(statusText, 525, currentY + 6);
+      if (students.length === 0) {
+        doc.fontSize(9).font('Helvetica-Oblique').fillColor('#94a3b8')
+          .text(`No students registered yet for ${grade} - ${classroom}.`, 35, currentY + 15, { align: 'center', width: 525 });
+      } else {
+        students.forEach((s, idx) => {
+          if (currentY + rowHeight > 750) {
+            doc.addPage();
+            drawHeader(`CLASS ATTENDANCE SHEET: ${grade.toUpperCase()} - ${classroom} (Cont.)`, `Official Class Attendance & Hall Status`);
+            currentY = 70;
+            drawClassTableHeader(currentY);
+            currentY += 18;
+          }
 
+          if (idx % 2 === 1) {
+            doc.save();
+            doc.rect(30, currentY, 535, rowHeight).fillColor('#f8fafc').fill();
+            doc.restore();
+          }
+
+          const arrTime = s.arrival_time ? new Date(s.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+          const extTime = s.exit_time ? new Date(s.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+          const statusText = s.status === 'INSIDE' ? '🟢 IN HALL' : (s.status === 'LEFT' ? '🔴 LEFT' : 'REGISTERED');
+          const statusColor = s.status === 'INSIDE' ? '#16a34a' : (s.status === 'LEFT' ? '#dc2626' : '#64748b');
+
+          doc.fontSize(7).font('Helvetica').fillColor('#64748b').text(String(idx + 1), 35, currentY + 6);
+          doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#0284c7').text(s.code, 65, currentY + 6);
+          doc.fontSize(8).font('Helvetica-Bold').fillColor('#0f172a').text(s.student_name || '—', 135, currentY + 6, { width: 170, ellipsis: true });
+          doc.fontSize(7).font('Helvetica').fillColor('#475569').text(arrTime, 315, currentY + 6);
+          doc.fontSize(7).font('Helvetica').fillColor('#475569').text(extTime, 405, currentY + 6);
+          doc.fontSize(7.5).font('Helvetica-Bold').fillColor(statusColor).text(statusText, 490, currentY + 6);
+
+          doc.save();
+          doc.lineWidth(0.3).strokeColor('#e2e8f0').moveTo(30, currentY + rowHeight).lineTo(565, currentY + rowHeight).stroke();
+          doc.restore();
+
+          currentY += rowHeight;
+        });
+
+        // Signatures at bottom
+        currentY += 30;
+        if (currentY > 730) {
+          doc.addPage();
+          currentY = 60;
+        }
+        doc.save();
+        doc.lineWidth(0.5).strokeColor('#94a3b8');
+        doc.moveTo(40, currentY + 40).lineTo(200, currentY + 40).stroke();
+        doc.moveTo(365, currentY + 40).lineTo(525, currentY + 40).stroke();
+        doc.fontSize(8).font('Helvetica').fillColor('#64748b');
+        doc.text('Prefect / Gate In-charge Signature', 40, currentY + 44, { width: 160, align: 'center' });
+        doc.text('Teacher / Section Head Signature', 365, currentY + 44, { width: 160, align: 'center' });
+        doc.restore();
+      }
+
+    } else {
+      // MASTER CLASS-WISE REPORT (Organized by Grade 12 & Grade 13 classes: B1-B4, M1-M7)
+      drawHeader('MASTER CLASS-BY-CLASS ATTENDANCE REPORT', 'Complete breakdown for Grade 12 & Grade 13 (Biology & Maths)');
+
+      const totalStudents = students.length;
+      const totalInside = students.filter(s => s.status === 'INSIDE').length;
+      const totalLeft = students.filter(s => s.status === 'LEFT').length;
+
+      // Overall Summary Banner
       doc.save();
-      doc.lineWidth(0.3).strokeColor('#e2e8f0').moveTo(30, currentY + rowHeight).lineTo(565, currentY + rowHeight).stroke();
+      doc.roundedRect(30, 70, 535, 24, 4).fillColor('#f8fafc').fill();
+      doc.lineWidth(0.5).strokeColor('#cbd5e1').roundedRect(30, 70, 535, 24, 4).stroke();
+      doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#0f172a')
+        .text(`OVERALL EVENT STATS:   Total Registered: ${totalStudents}   |   🟢 Inside Hall: ${totalInside}   |   🔴 Left Hall: ${totalLeft}`, 40, 77);
       doc.restore();
 
-      currentY += rowHeight;
-    });
+      // Class categories to iterate through
+      const gradesList = ['Grade 12', 'Grade 13'];
+      const bioClasses = ['B1', 'B2', 'B3', 'B4'];
+      const mathClasses = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7'];
+
+      // Quick Summary Grid on Page 1
+      doc.fontSize(9.5).font('Helvetica-Bold').fillColor('#991b1b').text('CLASS ATTENDANCE SUMMARY MATRIX', 30, 105);
+
+      let gridY = 120;
+      doc.save();
+      doc.rect(30, gridY, 535, 16).fillColor('#1e293b').fill();
+      doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#ffffff');
+      doc.text('STREAM & CLASS', 35, gridY + 4, { width: 150 });
+      doc.text('REGISTERED', 210, gridY + 4, { width: 80, align: 'center' });
+      doc.text('🟢 IN HALL', 310, gridY + 4, { width: 80, align: 'center' });
+      doc.text('🔴 LEFT HALL', 410, gridY + 4, { width: 80, align: 'center' });
+      doc.restore();
+      gridY += 16;
+
+      gradesList.forEach(gr => {
+        const allClasses = [...bioClasses, ...mathClasses];
+        allClasses.forEach(clz => {
+          const inThisClz = students.filter(s => s.grade === gr && s.classroom === clz);
+          const regCount = inThisClz.length;
+          if (regCount > 0) {
+            const insCount = inThisClz.filter(s => s.status === 'INSIDE').length;
+            const lftCount = inThisClz.filter(s => s.status === 'LEFT').length;
+            const stream = bioClasses.includes(clz) ? 'Biology' : 'Mathematics';
+
+            doc.save();
+            doc.rect(30, gridY, 535, 14).fillColor(gridY % 2 === 0 ? '#ffffff' : '#f8fafc').fill();
+            doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#0f172a').text(`${gr} - ${clz} (${stream})`, 35, gridY + 3);
+            doc.fontSize(7.5).font('Helvetica').fillColor('#0369a1').text(String(regCount), 210, gridY + 3, { width: 80, align: 'center' });
+            doc.fontSize(7.5).font('Helvetica').fillColor('#16a34a').text(String(insCount), 310, gridY + 3, { width: 80, align: 'center' });
+            doc.fontSize(7.5).font('Helvetica').fillColor('#dc2626').text(String(lftCount), 410, gridY + 3, { width: 80, align: 'center' });
+            doc.lineWidth(0.2).strokeColor('#e2e8f0').moveTo(30, gridY + 14).lineTo(565, gridY + 14).stroke();
+            doc.restore();
+            gridY += 14;
+          }
+        });
+      });
+
+      // Now detailed class lists
+      let currentY = gridY + 20;
+
+      gradesList.forEach(gr => {
+        const allClasses = [...bioClasses, ...mathClasses];
+
+        allClasses.forEach(clz => {
+          const inThisClz = students.filter(s => s.grade === gr && s.classroom === clz);
+          if (inThisClz.length === 0) return; // Skip empty classes in detailed print
+
+          const stream = bioClasses.includes(clz) ? 'Biology' : 'Mathematics';
+          const insCount = inThisClz.filter(s => s.status === 'INSIDE').length;
+          const lftCount = inThisClz.filter(s => s.status === 'LEFT').length;
+
+          // Check if space is available for header + at least 2 rows
+          if (currentY + 60 > 750) {
+            doc.addPage();
+            drawHeader('MASTER CLASS-BY-CLASS ATTENDANCE REPORT (Cont.)', 'Detailed Student Entries');
+            currentY = 70;
+          }
+
+          // Class Banner
+          doc.save();
+          doc.roundedRect(30, currentY, 535, 20, 3).fillColor('#0f172a').fill();
+          doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#ffffff')
+            .text(`📌 ${gr.toUpperCase()} - ${clz} (${stream.toUpperCase()})  •  Registered: ${inThisClz.length}  |  🟢 In Hall: ${insCount}  |  🔴 Left: ${lftCount}`, 38, currentY + 5);
+          doc.restore();
+          currentY += 20;
+
+          // Table Header
+          doc.save();
+          doc.rect(30, currentY, 535, 16).fillColor('#334155').fill();
+          doc.fontSize(7).font('Helvetica-Bold').fillColor('#f8fafc');
+          doc.text('#', 35, currentY + 4, { width: 25 });
+          doc.text('CODE', 65, currentY + 4, { width: 65 });
+          doc.text('STUDENT NAME', 135, currentY + 4, { width: 175 });
+          doc.text('ARRIVAL (IN)', 315, currentY + 4, { width: 85 });
+          doc.text('EXIT (OUT)', 405, currentY + 4, { width: 80 });
+          doc.text('STATUS', 490, currentY + 4, { width: 70 });
+          doc.restore();
+          currentY += 16;
+
+          const rowH = 18;
+          inThisClz.forEach((s, idx) => {
+            if (currentY + rowH > 750) {
+              doc.addPage();
+              drawHeader('MASTER CLASS-BY-CLASS ATTENDANCE REPORT (Cont.)', `${gr} - ${clz} Continued`);
+              currentY = 70;
+            }
+
+            if (idx % 2 === 1) {
+              doc.save();
+              doc.rect(30, currentY, 535, rowH).fillColor('#f8fafc').fill();
+              doc.restore();
+            }
+
+            const arrTime = s.arrival_time ? new Date(s.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+            const extTime = s.exit_time ? new Date(s.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+            const statusText = s.status === 'INSIDE' ? '🟢 IN HALL' : (s.status === 'LEFT' ? '🔴 LEFT' : 'REGISTERED');
+            const statusColor = s.status === 'INSIDE' ? '#16a34a' : (s.status === 'LEFT' ? '#dc2626' : '#64748b');
+
+            doc.fontSize(7).font('Helvetica').fillColor('#64748b').text(String(idx + 1), 35, currentY + 5);
+            doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#0284c7').text(s.code, 65, currentY + 5);
+            doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#0f172a').text(s.student_name || '—', 135, currentY + 5, { width: 170, ellipsis: true });
+            doc.fontSize(7).font('Helvetica').fillColor('#475569').text(arrTime, 315, currentY + 5);
+            doc.fontSize(7).font('Helvetica').fillColor('#475569').text(extTime, 405, currentY + 5);
+            doc.fontSize(7).font('Helvetica-Bold').fillColor(statusColor).text(statusText, 490, currentY + 5);
+
+            doc.save();
+            doc.lineWidth(0.2).strokeColor('#e2e8f0').moveTo(30, currentY + rowH).lineTo(565, currentY + rowH).stroke();
+            doc.restore();
+
+            currentY += rowH;
+          });
+
+          currentY += 12; // Gap between classes
+        });
+      });
+    }
 
     doc.end();
 
@@ -833,14 +1133,27 @@ app.get('/api/download-attendance-pdf', (req, res) => {
   }
 });
 
-// Export Attendance as CSV
-app.get('/api/export-csv', (req, res) => {
+// Export Attendance as CSV (Supports grade and classroom filter)
+app.get('/api/export-csv', async (req, res) => {
   try {
-    const passes = db.prepare(`
-      SELECT * FROM passes 
-      WHERE is_registered = 1 
-      ORDER BY grade ASC, classroom ASC, student_name ASC
-    `).all();
+    await syncFromFirestore();
+
+    const { grade = 'all', classroom = 'all' } = req.query;
+    let query = 'SELECT * FROM passes WHERE is_registered = 1';
+    const params = [];
+
+    if (grade !== 'all' && grade.trim()) {
+      query += ' AND grade = ?';
+      params.push(grade.trim());
+    }
+
+    if (classroom !== 'all' && classroom.trim()) {
+      query += ' AND classroom = ?';
+      params.push(classroom.trim().toUpperCase());
+    }
+
+    query += ' ORDER BY grade ASC, classroom ASC, student_name ASC';
+    const passes = db.prepare(query).all(...params);
 
     let csv = '\uFEFF';
     csv += 'Pass Code,Student Name,Grade,Class,Arrival Time (IN),Exit Time (OUT),Current Status,Scan Count,Registered Date\n';

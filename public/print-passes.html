@@ -150,25 +150,29 @@
   <div class="sheet-container" id="container"></div>
 
   <script>
-    const TOTAL = 400;
+    const urlParams = new URLSearchParams(window.location.search);
+    const fromVal = Math.max(1, parseInt(urlParams.get('from') || '1', 10));
+    const toVal = Math.max(fromVal, parseInt(urlParams.get('to') || '400', 10));
+    const TOTAL = toVal - fromVal + 1;
     const PER_PAGE = 20;
     const PREFIX = 'SCI-';
 
     function init() {
       const container = document.getElementById('container');
       const pages = Math.ceil(TOTAL / PER_PAGE);
+      document.getElementById('status-txt').textContent = `Generating ${TOTAL} QR codes (#${fromVal} to #${toVal}) across ${pages} A4 page${pages > 1 ? 's' : ''}...`;
 
-      let cur = 1;
+      let cur = fromVal;
       for (let p = 1; p <= pages; p++) {
         const pageDiv = document.createElement('div');
         pageDiv.className = 'page';
 
-        for (let b = 0; b < PER_PAGE && cur <= TOTAL; b++) {
+        for (let b = 0; b < PER_PAGE && cur <= toVal; b++) {
           const code = `${PREFIX}${String(cur).padStart(4, '0')}`;
           const token = document.createElement('div');
           token.className = 'qr-token';
           token.innerHTML = `
-            <div class="hdr">SCIENCE DAY 2026</div>
+            <div class="hdr">NCSS SCIENCE DAY 2026</div>
             <div class="qr-canvas-box">
               <canvas id="qr-${code}"></canvas>
             </div>
@@ -182,7 +186,7 @@
       }
 
       // Render QRs
-      for (let i = 1; i <= TOTAL; i++) {
+      for (let i = fromVal; i <= toVal; i++) {
         const code = `${PREFIX}${String(i).padStart(4, '0')}`;
         const canvas = document.getElementById(`qr-${code}`);
         if (canvas && window.QRCode) {
