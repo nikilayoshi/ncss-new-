@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -71,7 +72,7 @@
       page-break-after: always;
       break-after: page;
       overflow: hidden;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
     }
 
     /* 1 QR Token */
@@ -126,14 +127,32 @@
     }
 
     @media print {
-      body { background: #ffffff !important; padding: 0 !important; }
-      .no-print { display: none !important; }
-      .sheet-container { gap: 0 !important; }
-      .page { margin: 0 !important; box-shadow: none !important; }
-      @page { size: A4 portrait; margin: 0; }
+      body {
+        background: #ffffff !important;
+        padding: 0 !important;
+      }
+
+      .no-print {
+        display: none !important;
+      }
+
+      .sheet-container {
+        gap: 0 !important;
+      }
+
+      .page {
+        margin: 0 !important;
+        box-shadow: none !important;
+      }
+
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
     }
   </style>
 </head>
+
 <body>
 
   <div class="no-print">
@@ -202,4 +221,5 @@
     window.onload = init;
   </script>
 </body>
+
 </html>

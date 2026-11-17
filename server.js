@@ -32,7 +32,19 @@ const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Force no-cache on all responses so browsers and CDNs never show stale versions
+app.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: false,
+  maxAge: 0
+}));
 
 // Firebase Config
 const firebaseConfig = {
@@ -227,12 +239,20 @@ function checkAdminAuth(req, res, next) {
 // -----------------------------------------------------------------------------
 // SHORTCUT ROUTES
 // -----------------------------------------------------------------------------
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.get('/scanner', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'scanner.html'));
 });
 
 app.get('/scan', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'scanner.html'));
+});
+
+app.get('/print-passes', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'print-passes.html'));
 });
 
 // -----------------------------------------------------------------------------
