@@ -4,6 +4,20 @@ let currentTab = 'dashboard';
 let currentStudentPage = 1;
 let studentSearchTimeout = null;
 
+// Sri Lanka Standard Time Formatter (Asia/Colombo - UTC+05:30)
+function formatSriLankaTime(isoString, withSeconds = true) {
+  if (!isoString) return '—';
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('en-US', {
+    timeZone: 'Asia/Colombo',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: withSeconds ? '2-digit' : undefined,
+    hour12: true
+  });
+}
+
 function getAdminPassword() {
   return sessionStorage.getItem('scienceday_admin_pass') || '';
 }
@@ -150,7 +164,7 @@ function renderRecentLogs(logs) {
       actionLabel = 'RE-ENTERED';
     }
 
-    const timeStr = log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+    const timeStr = log.timestamp ? formatSriLankaTime(log.timestamp, true) : '';
 
     return `
       <div class="flex items-center justify-between p-2.5 bg-slate-950/70 rounded-xl border border-slate-800/70 text-xs">
@@ -271,8 +285,8 @@ function renderStudentsTable(passes) {
       statusBadge = `<span class="px-2 py-0.5 rounded-full text-[9px] font-medium bg-slate-800 text-slate-400">Unassigned</span>`;
     }
 
-    const arrTime = p.arrival_time ? new Date(p.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
-    const extTime = p.exit_time ? new Date(p.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+    const arrTime = p.arrival_time ? formatSriLankaTime(p.arrival_time, true) : '—';
+    const extTime = p.exit_time ? formatSriLankaTime(p.exit_time, true) : '—';
 
     // Show delete button only if registered, or fresh
     const deleteBtn = p.is_registered

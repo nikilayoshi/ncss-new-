@@ -361,6 +361,33 @@
     let audioCtx = null;
     let registeredStudentsCache = [];
 
+    // Sri Lanka Standard Time Formatters (Asia/Colombo - UTC+05:30)
+    function formatSriLankaTime(isoString, withSeconds = true) {
+      if (!isoString) return '-';
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return '-';
+      return d.toLocaleTimeString('en-US', {
+        timeZone: 'Asia/Colombo',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: withSeconds ? '2-digit' : undefined,
+        hour12: true
+      });
+    }
+
+    function formatSriLankaDateTime(isoString) {
+      if (!isoString) return '-';
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return '-';
+      const date = d.toLocaleDateString('en-GB', {
+        timeZone: 'Asia/Colombo',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+      return `${date} ${formatSriLankaTime(isoString, true)}`;
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       if (window.lucide) lucide.createIcons();
 
@@ -643,7 +670,9 @@
       document.getElementById('card-student-name').textContent = pass.student_name;
       document.getElementById('card-student-class').textContent = pass.school_or_grade || `${pass.grade} - ${pass.classroom}`;
       document.getElementById('card-pass-code').textContent = pass.code;
-      document.getElementById('card-arrival-time').textContent = arrTime || '-';
+
+      const formattedArr = pass.arrival_time ? formatSriLankaTime(pass.arrival_time, true) : (arrTime || '-');
+      document.getElementById('card-arrival-time').textContent = formattedArr;
 
       const isInside = pass.status === 'INSIDE';
 
@@ -663,7 +692,9 @@
         badge.className = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-black bg-amber-950 text-amber-400 border border-amber-800';
         badge.innerHTML = '🔴 CURRENTLY OUTSIDE (LEFT)';
         exitRow.classList.remove('hidden');
-        document.getElementById('card-exit-time').textContent = extTime || 'Earlier';
+
+        const formattedExt = pass.exit_time ? formatSriLankaTime(pass.exit_time, true) : (extTime || 'Earlier');
+        document.getElementById('card-exit-time').textContent = formattedExt;
 
         // Show green "RE-ADMIT TO HALL" button
         actions.innerHTML = `
@@ -681,6 +712,15 @@
     // Submit Explicit Status Change (EXIT or RE-ENTRY)
     async function submitMarkStatus(code, action) {
       try {
+        const now = new Date();
+        const slTimeStr = formatSriLankaTime(now, true);
+
+        if (action === 'EXIT') {
+          playTone('exit');
+        } else {
+          playTone('enter');
+        }
+
         const res = await fetch('/api/mark-status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -689,18 +729,17 @@
         const data = await res.json();
 
         if (data.success) {
-          if (action === 'EXIT') {
-            playTone('exit');
-          } else {
-            playTone('enter');
-          }
-
           showVerifiedStudentCard(data.pass, 
-            data.pass.arrival_time ? new Date(data.pass.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-', 
-            data.time
+            data.pass.arrival_time ? formatSriLankaTime(data.pass.arrival_time, true) : '-', 
+            data.pass.exit_time ? formatSriLankaTime(data.pass.exit_time, true) : (data.time || slTimeStr)
           );
         } else {
           alert('Error: ' + data.error);
+        }
+      } catch (err) {
+        alert('Failed to update status: ' + err.message);
+      }
+    }
         }
       } catch (err) {
         alert('Failed to update status: ' + err.message);
@@ -761,15 +800,9 @@
       });
     }
 
-    // SUBMIT FAST REGISTRATION (INSTANT - NO MODAL, NO VOICE DELAY)
+    // SUBMIT FAST REGISTRATION (INSTANT OPTIMISTIC - 0 DELAY, INSTANT CAMERA READY)
     async function submitFastRegistration(e) {
       e.preventDefault();
-      const submitBtn = e.target.querySelector('button[type="submit"]');
-      const originalHtml = submitBtn ? submitBtn.innerHTML : '';
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span>ADMITTING STUDENT...</span>';
-      }
 
       const code = document.getElementById('reg-code').value;
       const student_name = document.getElementById('reg-name').value.trim();
@@ -778,57 +811,54 @@
 
       if (!classroom) {
         alert('Please select a Class (B1-B4 or M1-M7)!');
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.innerHTML = originalHtml;
-        }
         return;
       }
 
+      const now = new Date();
+      const slTimeStr = formatSriLankaTime(now, true);
+      const optimisticPass = {
+        code,
+        student_name,
+        grade,
+        classroom,
+        school_or_grade: `${grade} - ${classroom}`,
+        status: 'INSIDE',
+        arrival_time: now.toISOString(),
+        scan_count: 1
+      };
+
+      // 1. INSTANT: Close bottom sheet immediately
+      closeRegisterSheet();
+      // 2. INSTANT: Play entry audio chime
+      playTone('enter');
+      // 3. INSTANT: Display student card with Sri Lanka Time
+      showVerifiedStudentCard(optimisticPass, slTimeStr, null);
+      // 4. INSTANT: Clear last scan cache so next pass scans immediately
+      lastCode = '';
+      lastTime = 0;
+
+      // 5. Visual flash on scan status pill
+      const pill = document.getElementById('scan-status-pill');
+      if (pill) {
+        pill.innerHTML = `<span class="text-emerald-300 font-black">✅ ${escapeHtml(code)} Admitted (${slTimeStr})</span>`;
+        setTimeout(() => {
+          pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Ready`;
+        }, 2200);
+      }
+
+      // 6. Fast background network save
       try {
         const res = await fetch('/api/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code, student_name, grade, classroom, scanner_device: 'Mobile Gate' })
         });
-
         const data = await res.json();
-        if (!data.success) {
-          alert('Registration error: ' + (data.error || 'Failed'));
-          if (submitBtn) {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalHtml;
-          }
-          return;
+        if (data.success && data.pass) {
+          showVerifiedStudentCard(data.pass, data.time || slTimeStr, null);
         }
-
-        // Close registration sheet immediately with 0 delay
-        closeRegisterSheet();
-        playTone('enter');
-
-        // Immediately show verified student card below camera
-        showVerifiedStudentCard(data.pass, data.time, null);
-
-        // Reset scan throttle so next pass can be scanned immediately
-        lastCode = '';
-        lastTime = 0;
-
-        // Visual flash on scan status pill
-        const pill = document.getElementById('scan-status-pill');
-        if (pill) {
-          pill.innerHTML = `<span class="text-emerald-300 font-black">✅ ${escapeHtml(code)} Admitted</span>`;
-          setTimeout(() => {
-            pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span> Ready`;
-          }, 2000);
-        }
-
       } catch (err) {
-        alert('Registration failed: ' + err.message);
-      } finally {
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.innerHTML = originalHtml;
-        }
+        console.warn('Background registration sync warning:', err);
       }
     }
 
@@ -877,8 +907,8 @@
           : '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-950 text-amber-400 border border-amber-800">Left</span>';
 
         const time = isInside 
-          ? (s.arrival_time ? new Date(s.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')
-          : (s.exit_time ? new Date(s.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+          ? (s.arrival_time ? formatSriLankaTime(s.arrival_time, true) : '')
+          : (s.exit_time ? formatSriLankaTime(s.exit_time, true) : '');
 
         return `
           <div class="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between text-xs">

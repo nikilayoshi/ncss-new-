@@ -43,6 +43,41 @@ const app = express();
 const HTTP_PORT = process.env.PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 
+// -----------------------------------------------------------------------------
+// SRI LANKA STANDARD TIME HELPERS (Asia/Colombo - UTC+05:30)
+// -----------------------------------------------------------------------------
+function formatSLTime(date, withSeconds = true) {
+  if (!date) return '—';
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('en-US', {
+    timeZone: 'Asia/Colombo',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: withSeconds ? '2-digit' : undefined,
+    hour12: true
+  });
+}
+
+function formatSLDate(date) {
+  if (!date) return '—';
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', {
+    timeZone: 'Asia/Colombo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }); // DD/MM/YYYY
+}
+
+function formatSLDateTime(date) {
+  if (!date) return '—';
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '—';
+  return `${formatSLDate(d)} ${formatSLTime(d, true)}`;
+}
+
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -297,8 +332,8 @@ app.post('/api/scan', async (req, res) => {
       });
     }
 
-    const arrTime = pass.arrival_time ? new Date(pass.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
-    const extTime = pass.exit_time ? new Date(pass.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+    const arrTime = pass.arrival_time ? formatSLTime(pass.arrival_time, true) : '-';
+    const extTime = pass.exit_time ? formatSLTime(pass.exit_time, true) : '-';
 
     return res.json({
       success: true,
@@ -315,11 +350,9 @@ app.post('/api/scan', async (req, res) => {
   }
 });
 
-// 2. Mark Student Status (EXIT / RE-ENTRY)
-app.post('/api/mark-status', async (req, res) => {
+// 2. Mark Student Status (EXIT / RE-ENTRY) - FAST NON-BLOCKING
+app.post('/api/mark-status', (req, res) => {
   try {
-    await syncFromFirestore();
-
     let { code, action = 'EXIT' } = req.body;
     if (!code) return res.status(400).json({ success: false, error: 'Code is required' });
 
@@ -332,8 +365,8 @@ app.post('/api/mark-status', async (req, res) => {
 
     const now = new Date();
     const nowIso = now.toISOString();
-    const dateFormatted = now.toLocaleDateString();
-    const timeFormatted = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const dateFormatted = formatSLDate(now);
+    const timeFormatted = formatSLTime(now, true);
     const newCount = (pass.scan_count || 1) + 1;
 
     if (action === 'EXIT') {
@@ -353,16 +386,14 @@ app.post('/api/mark-status', async (req, res) => {
         action: 'STUDENT_EXIT',
         timestamp: nowIso,
         scanner_device: 'Mobile Scanner',
-        details: `Left hall at ${timeFormatted}`
+        details: `Left hall at ${timeFormatted} (${dateFormatted})`
       };
       scanLogsStore.unshift(logEntry);
 
+      // Background persist to Firestore without delaying response
       if (firestoreDb) {
-        try {
-          await setDoc(doc(firestoreDb, 'passes', code), updated, { merge: true });
-        } catch (e) {
-          console.warn('[Firebase Update Error]', e.message);
-        }
+        setDoc(doc(firestoreDb, 'passes', code), updated, { merge: true })
+          .catch(e => console.warn('[Firebase Update Error]', e.message));
       }
 
       return res.json({
@@ -371,8 +402,7 @@ app.post('/api/mark-status', async (req, res) => {
         pass: updated,
         time: timeFormatted,
         date: dateFormatted,
-        message: `Student ${pass.student_name} marked as LEFT HALL at ${timeFormatted}`,
-        spokenAnnouncement: `Thank you, ${pass.student_name}! Exit recorded.`
+        message: `Student ${pass.student_name} marked as LEFT HALL at ${timeFormatted}`
       });
 
     } else {
@@ -392,16 +422,14 @@ app.post('/api/mark-status', async (req, res) => {
         action: 'STUDENT_RE_ENTRY',
         timestamp: nowIso,
         scanner_device: 'Mobile Scanner',
-        details: `Re-entered hall at ${timeFormatted}`
+        details: `Re-entered hall at ${timeFormatted} (${dateFormatted})`
       };
       scanLogsStore.unshift(logEntry);
 
+      // Background persist to Firestore without delaying response
       if (firestoreDb) {
-        try {
-          await setDoc(doc(firestoreDb, 'passes', code), updated, { merge: true });
-        } catch (e) {
-          console.warn('[Firebase Update Error]', e.message);
-        }
+        setDoc(doc(firestoreDb, 'passes', code), updated, { merge: true })
+          .catch(e => console.warn('[Firebase Update Error]', e.message));
       }
 
       return res.json({
@@ -410,8 +438,7 @@ app.post('/api/mark-status', async (req, res) => {
         pass: updated,
         time: timeFormatted,
         date: dateFormatted,
-        message: `Student ${pass.student_name} marked as RE-ENTERED at ${timeFormatted}`,
-        spokenAnnouncement: `Welcome back, ${pass.student_name}! You may enter the Malalasekara Hall.`
+        message: `Student ${pass.student_name} marked as RE-ENTERED at ${timeFormatted}`
       });
     }
 
@@ -420,17 +447,15 @@ app.post('/api/mark-status', async (req, res) => {
   }
 });
 
-// 3. Register Student
-app.post('/api/register', async (req, res) => {
+// 3. Register Student - ULTRA FAST INSTANT REGISTRATION
+app.post('/api/register', (req, res) => {
   try {
-    await syncFromFirestore();
-
     let {
       code,
       student_name,
       grade,
       classroom,
-      scanner_device = 'Mobile Scanner'
+      scanner_device = 'Mobile Gate'
     } = req.body;
 
     if (!code || !student_name || !grade || !classroom) {
@@ -448,6 +473,8 @@ app.post('/api/register', async (req, res) => {
 
     const now = new Date();
     const nowIso = now.toISOString();
+    const dateFormatted = formatSLDate(now);
+    const timeFormatted = formatSLTime(now, true);
 
     const newPass = {
       code,
@@ -464,6 +491,7 @@ app.post('/api/register', async (req, res) => {
       last_updated: nowIso
     };
 
+    // Update in-memory instantly
     passesStore.set(code, newPass);
 
     const logEntry = {
@@ -473,25 +501,22 @@ app.post('/api/register', async (req, res) => {
       action: 'STUDENT_REGISTER_ENTRY',
       timestamp: nowIso,
       scanner_device,
-      details: `${school_or_grade} • Registered & Admitted to Malalasekara Hall`
+      details: `${school_or_grade} • Registered & Admitted to Malalasekara Hall at ${timeFormatted}`
     };
     scanLogsStore.unshift(logEntry);
 
+    // Persist to Cloud Firestore in background without blocking response
     if (firestoreDb) {
-      try {
-        await setDoc(doc(firestoreDb, 'passes', code), newPass, { merge: true });
-      } catch (e) {
-        console.warn('[Firebase Register Error]', e.message);
-      }
+      setDoc(doc(firestoreDb, 'passes', code), newPass, { merge: true })
+        .catch(e => console.warn('[Firebase Register Error]', e.message));
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: `Pass ${code} permanently assigned to ${student_name}!`,
       pass: newPass,
-      date: now.toLocaleDateString(),
-      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      spokenGreeting: `Welcome, ${student_name}! You can now enter the Malalasekara Hall.`
+      date: dateFormatted,
+      time: timeFormatted
     });
 
   } catch (err) {
@@ -874,7 +899,7 @@ async function generateAttendancePdfBuffer(grade, classroom) {
         doc.fontSize(10).fillColor('#0f172a')
           .text(title, 74, 40);
         doc.fontSize(7.5).fillColor('#64748b')
-          .text(`${subtitle} • Generated: ${new Date().toLocaleString()}`, 74, 53);
+          .text(`${subtitle} • Generated: ${formatSLDateTime(new Date())} (Sri Lanka Time)`, 74, 53);
       }
 
       if (isSpecificClass) {
@@ -888,7 +913,7 @@ async function generateAttendancePdfBuffer(grade, classroom) {
         doc.roundedRect(30, 70, 535, 24, 4).fillColor('#f8fafc').fill();
         doc.lineWidth(0.5).strokeColor('#cbd5e1').roundedRect(30, 70, 535, 24, 4).stroke();
         doc.fontSize(8.5).fillColor('#0f172a')
-          .text(`Class: ${grade} - ${classroom}   |   Total Registered: ${totalInClass}   |   🟢 In Hall: ${insideInClass}   |   🔴 Left Hall: ${leftInClass}`, 40, 77);
+          .text(`Class: ${grade} - ${classroom}   |   Total Registered: ${totalInClass}   |   In Hall: ${insideInClass}   |   Left Hall: ${leftInClass}`, 40, 77);
         doc.restore();
 
         let currentY = 104;
@@ -929,9 +954,9 @@ async function generateAttendancePdfBuffer(grade, classroom) {
               doc.restore();
             }
 
-            const arrTime = s.arrival_time ? new Date(s.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
-            const extTime = s.exit_time ? new Date(s.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
-            const statusText = s.status === 'INSIDE' ? '🟢 IN HALL' : (s.status === 'LEFT' ? '🔴 LEFT' : 'REGISTERED');
+            const arrTime = s.arrival_time ? formatSLTime(s.arrival_time, true) : '—';
+            const extTime = s.exit_time ? formatSLTime(s.exit_time, true) : '—';
+            const statusText = s.status === 'INSIDE' ? 'IN HALL' : (s.status === 'LEFT' ? 'LEFT' : 'REGISTERED');
             const statusColor = s.status === 'INSIDE' ? '#16a34a' : (s.status === 'LEFT' ? '#dc2626' : '#64748b');
 
             doc.fontSize(7).fillColor('#64748b').text(String(idx + 1), 35, currentY + 6);
@@ -976,7 +1001,7 @@ async function generateAttendancePdfBuffer(grade, classroom) {
         doc.roundedRect(30, 70, 535, 24, 4).fillColor('#f8fafc').fill();
         doc.lineWidth(0.5).strokeColor('#cbd5e1').roundedRect(30, 70, 535, 24, 4).stroke();
         doc.fontSize(8.5).fillColor('#0f172a')
-          .text(`OVERALL EVENT STATS:   Total Registered: ${totalStudents}   |   🟢 Inside Hall: ${totalInside}   |   🔴 Left Hall: ${totalLeft}`, 40, 77);
+          .text(`OVERALL EVENT STATS:   Total Registered: ${totalStudents}   |   Inside Hall: ${totalInside}   |   Left Hall: ${totalLeft}`, 40, 77);
         doc.restore();
 
         const gradesList = ['Grade 12', 'Grade 13'];
@@ -991,8 +1016,8 @@ async function generateAttendancePdfBuffer(grade, classroom) {
         doc.fontSize(7.5).fillColor('#ffffff');
         doc.text('STREAM & CLASS', 35, gridY + 4, { width: 150 });
         doc.text('REGISTERED', 210, gridY + 4, { width: 80, align: 'center' });
-        doc.text('🟢 IN HALL', 310, gridY + 4, { width: 80, align: 'center' });
-        doc.text('🔴 LEFT HALL', 410, gridY + 4, { width: 80, align: 'center' });
+        doc.text('IN HALL', 310, gridY + 4, { width: 80, align: 'center' });
+        doc.text('LEFT HALL', 410, gridY + 4, { width: 80, align: 'center' });
         doc.restore();
         gridY += 16;
 
@@ -1041,7 +1066,7 @@ async function generateAttendancePdfBuffer(grade, classroom) {
             doc.save();
             doc.roundedRect(30, currentY, 535, 20, 3).fillColor('#0f172a').fill();
             doc.fontSize(8.5).fillColor('#ffffff')
-              .text(`📌 ${gr.toUpperCase()} - ${clz} (${stream.toUpperCase()})  •  Registered: ${inThisClz.length}  |  🟢 In Hall: ${insCount}  |  🔴 Left: ${lftCount}`, 38, currentY + 5);
+              .text(`${gr.toUpperCase()} - ${clz} (${stream.toUpperCase()})  •  Registered: ${inThisClz.length}  |  In Hall: ${insCount}  |  Left: ${lftCount}`, 38, currentY + 5);
             doc.restore();
             currentY += 20;
 
@@ -1071,9 +1096,9 @@ async function generateAttendancePdfBuffer(grade, classroom) {
                 doc.restore();
               }
 
-              const arrTime = s.arrival_time ? new Date(s.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
-              const extTime = s.exit_time ? new Date(s.exit_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
-              const statusText = s.status === 'INSIDE' ? '🟢 IN HALL' : (s.status === 'LEFT' ? '🔴 LEFT' : 'REGISTERED');
+              const arrTime = s.arrival_time ? formatSLTime(s.arrival_time, true) : '—';
+              const extTime = s.exit_time ? formatSLTime(s.exit_time, true) : '—';
+              const statusText = s.status === 'INSIDE' ? 'IN HALL' : (s.status === 'LEFT' ? 'LEFT' : 'REGISTERED');
               const statusColor = s.status === 'INSIDE' ? '#16a34a' : (s.status === 'LEFT' ? '#dc2626' : '#64748b');
 
               doc.fontSize(7).fillColor('#64748b').text(String(idx + 1), 35, currentY + 5);
@@ -1167,9 +1192,9 @@ app.get('/api/export-csv', async (req, res) => {
     csv += 'Pass Code,Student Name,Grade,Class,Arrival Time (IN),Exit Time (OUT),Current Status,Scan Count,Registered Date\n';
 
     passes.forEach(p => {
-      const arrTime = p.arrival_time ? new Date(p.arrival_time).toLocaleString() : '';
-      const extTime = p.exit_time ? new Date(p.exit_time).toLocaleString() : '';
-      const regTime = p.registered_at ? new Date(p.registered_at).toLocaleString() : '';
+      const arrTime = p.arrival_time ? formatSLDateTime(p.arrival_time) : '';
+      const extTime = p.exit_time ? formatSLDateTime(p.exit_time) : '';
+      const regTime = p.registered_at ? formatSLDateTime(p.registered_at) : '';
 
       const escape = (val) => {
         if (!val) return '""';
