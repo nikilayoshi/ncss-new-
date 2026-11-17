@@ -472,6 +472,10 @@
       }
     }
 
+    window.handlePrefectLogin = handlePrefectLogin;
+    window.unlockPrefectScanner = unlockPrefectScanner;
+    window.lockPrefectScanner = lockPrefectScanner;
+
     function lockPrefectScanner() {
       try { localStorage.removeItem('ncss_prefect_pin'); } catch (e) {}
       const lock = document.getElementById('prefect-lock-screen');
@@ -786,11 +790,6 @@
           );
         } else {
           alert('Error: ' + data.error);
-        }
-      } catch (err) {
-        alert('Failed to update status: ' + err.message);
-      }
-    }
         }
       } catch (err) {
         alert('Failed to update status: ' + err.message);
