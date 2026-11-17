@@ -1,5 +1,13 @@
 {
   "version": 2,
+  "functions": {
+    "api/*.js": {
+      "includeFiles": "node_modules/pdfkit/**"
+    },
+    "server.js": {
+      "includeFiles": "node_modules/pdfkit/**"
+    }
+  },
   "builds": [
     {
       "src": "server.js",
@@ -7,8 +15,7 @@
       "config": {
         "includeFiles": [
           "public/**",
-          "node_modules/pdfkit/js/data/**",
-          "node_modules/pdfkit/js/standard-fonts/**"
+          "node_modules/pdfkit/**"
         ]
       }
     }
