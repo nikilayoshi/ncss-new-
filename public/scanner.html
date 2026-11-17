@@ -79,16 +79,17 @@
         <p class="text-xs text-slate-400 mt-0.5">Enter Prefect Passcode</p>
       </div>
 
-      <form id="prefect-login-form" onsubmit="event.preventDefault(); handlePrefectLogin(event); return false;" class="space-y-3">
+      <div id="prefect-login-box" class="space-y-3">
         <div>
-          <input type="password" id="prefect-passcode-input" required placeholder="Passcode (12345678)" inputmode="numeric"
+          <input type="password" id="prefect-passcode-input" placeholder="Passcode (12345678)" inputmode="numeric"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();handlePrefectLogin();}"
             class="w-full px-4 py-3 bg-slate-950 text-white rounded-xl border border-slate-700 text-sm focus:outline-none focus:border-red-500 text-center tracking-widest font-mono">
           <p id="prefect-error-msg" class="text-rose-400 text-[11px] mt-1.5 hidden">Incorrect Passcode! (12345678)</p>
         </div>
-        <button type="submit" class="w-full py-3 bg-gradient-to-r from-red-600 to-rose-600 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 active:scale-95 transition-all">
+        <button type="button" onclick="handlePrefectLogin()" class="w-full py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 active:scale-95 transition-all">
           Unlock Scanner
         </button>
-      </form>
+      </div>
     </div>
   </div>
 
@@ -388,14 +389,26 @@
       return `${date} ${formatSriLankaTime(isoString, true)}`;
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      if (window.lucide) lucide.createIcons();
-
-      const savedPin = localStorage.getItem('ncss_prefect_pin');
-      if (savedPin === '12345678') {
-        unlockPrefectScanner();
+    function checkAutoUnlock() {
+      try {
+        if (window.location.search.includes('?')) {
+          try { window.history.replaceState({}, '', window.location.pathname); } catch (e) {}
+        }
+        if (window.lucide) lucide.createIcons();
+        const savedPin = localStorage.getItem('ncss_prefect_pin');
+        if (savedPin === '12345678') {
+          unlockPrefectScanner();
+        }
+      } catch (e) {
+        console.warn('Auto unlock check warning:', e);
       }
-    });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', checkAutoUnlock);
+    } else {
+      checkAutoUnlock();
+    }
 
     async function handlePrefectLogin(e) {
       if (e) {
@@ -407,7 +420,7 @@
 
       // Instant local check for standard passcode: 12345678
       if (pin === '12345678') {
-        localStorage.setItem('ncss_prefect_pin', pin);
+        try { localStorage.setItem('ncss_prefect_pin', pin); } catch (e) {}
         if (err) err.classList.add('hidden');
         unlockPrefectScanner();
         return false;
@@ -421,8 +434,8 @@
         });
         const data = await res.json();
 
-        if (data.success) {
-          localStorage.setItem('ncss_prefect_pin', pin);
+        if (data && data.success) {
+          try { localStorage.setItem('ncss_prefect_pin', pin); } catch (e) {}
           if (err) err.classList.add('hidden');
           unlockPrefectScanner();
         } else {
@@ -439,11 +452,14 @@
       const app = document.getElementById('scanner-app-wrapper');
       if (lock) {
         lock.style.setProperty('display', 'none', 'important');
+        lock.style.cssText = 'display:none !important; visibility:hidden !important; pointer-events:none !important; opacity:0 !important; z-index:-999 !important;';
         lock.classList.add('hidden');
         lock.classList.remove('flex');
+        lock.setAttribute('aria-hidden', 'true');
       }
       if (app) {
         app.style.setProperty('display', 'flex', 'important');
+        app.style.cssText = 'display:flex !important; visibility:visible !important; opacity:1 !important;';
         app.classList.remove('hidden');
       }
       try {
@@ -457,16 +473,19 @@
     }
 
     function lockPrefectScanner() {
-      localStorage.removeItem('ncss_prefect_pin');
+      try { localStorage.removeItem('ncss_prefect_pin'); } catch (e) {}
       const lock = document.getElementById('prefect-lock-screen');
       const app = document.getElementById('scanner-app-wrapper');
       if (lock) {
-        lock.style.setProperty('display', 'flex', 'important');
+        lock.style.removeProperty('display');
+        lock.style.cssText = '';
         lock.classList.remove('hidden');
         lock.classList.add('flex');
+        lock.removeAttribute('aria-hidden');
       }
       if (app) {
-        app.style.setProperty('display', 'none', 'important');
+        app.style.removeProperty('display');
+        app.style.cssText = 'display:none !important;';
         app.classList.add('hidden');
       }
       const pinInput = document.getElementById('prefect-passcode-input');
