@@ -726,6 +726,24 @@ app.post('/api/passes/reset-all', checkAdminAuth, async (req, res) => {
 // BUFFERED PDF GENERATION ENGINE (100% RELIABLE ON VERCEL & SERVERLESS)
 // -----------------------------------------------------------------------------
 
+const regularFontPath = path.join(__dirname, 'fonts', 'Arial.ttf');
+const boldFontPath = path.join(__dirname, 'fonts', 'Arial-Bold.ttf');
+const hasCustomFont = fs.existsSync(regularFontPath);
+
+function applyFonts(doc) {
+  if (hasCustomFont) {
+    try {
+      doc.registerFont('AppFont', regularFontPath);
+      if (fs.existsSync(boldFontPath)) {
+        doc.registerFont('AppFont-Bold', boldFontPath);
+      }
+      doc.font('AppFont');
+    } catch (e) {
+      console.warn('[PDF Font Notice]', e.message);
+    }
+  }
+}
+
 async function generateQrPdfBuffer(from, to, prefix = 'SCI-') {
   ensurePassesSeed(to, prefix);
 
@@ -742,6 +760,7 @@ async function generateQrPdfBuffer(from, to, prefix = 'SCI-') {
         margins: { top: 20, bottom: 20, left: 20, right: 20 },
         bufferPages: true
       });
+      applyFonts(doc);
 
       const chunks = [];
       doc.on('data', c => chunks.push(c));
@@ -881,6 +900,7 @@ async function generateAttendancePdfBuffer(grade, classroom) {
         margins: { top: 30, bottom: 30, left: 30, right: 30 },
         bufferPages: true
       });
+      applyFonts(doc);
 
       const chunks = [];
       doc.on('data', c => chunks.push(c));
@@ -894,10 +914,12 @@ async function generateAttendancePdfBuffer(grade, classroom) {
         if (hasLogo) {
           doc.image(logoPath, 30, 24, { width: 36, height: 36 });
         }
+        if (hasCustomFont) doc.font('AppFont-Bold');
         doc.fontSize(14).fillColor('#991b1b')
           .text('NCSS SCIENCE DAY 2026', 74, 25);
         doc.fontSize(10).fillColor('#0f172a')
           .text(title, 74, 40);
+        if (hasCustomFont) doc.font('AppFont');
         doc.fontSize(7.5).fillColor('#64748b')
           .text(`${subtitle} • Generated: ${formatSLDateTime(new Date())} (Sri Lanka Time)`, 74, 53);
       }
@@ -922,6 +944,7 @@ async function generateAttendancePdfBuffer(grade, classroom) {
         function drawClassTableHeader(y) {
           doc.save();
           doc.rect(30, y, 535, 18).fillColor('#1e293b').fill();
+          if (hasCustomFont) doc.font('AppFont-Bold');
           doc.fontSize(7.5).fillColor('#ffffff');
           doc.text('#', 35, y + 5, { width: 25 });
           doc.text('PASS CODE', 65, y + 5, { width: 65 });
@@ -929,6 +952,7 @@ async function generateAttendancePdfBuffer(grade, classroom) {
           doc.text('ARRIVAL (IN)', 315, y + 5, { width: 85 });
           doc.text('EXIT (OUT)', 405, y + 5, { width: 80 });
           doc.text('STATUS', 490, y + 5, { width: 70 });
+          if (hasCustomFont) doc.font('AppFont');
           doc.restore();
         }
 
